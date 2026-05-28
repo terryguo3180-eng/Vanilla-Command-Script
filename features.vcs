@@ -1,0 +1,79 @@
+const INVALID_INT: Int = 0
+
+
+find_primes(n: Int) -> &List<Int>:
+    if n < 2:
+        return []
+    primes: List<Int> = alloc [2]
+    for i: Int = 3; i < n; i += 2:
+        max: Int = isqrt(i) + 1
+        for j: Int = 3; j <= max; j += 2:
+            if i % j == 0:
+                break
+        else:
+            primes += i
+
+    return &primes
+
+parse_int(str: String) -> Int:
+    num: Int = 0
+    sign: Int
+
+    if str[0] == "-":
+        sign = -1
+        str = str[1:]
+    else:
+        sign = 1
+
+    for pass; str != ""; str = str[1:]:
+        char: String = str[0]
+        digit: Int
+
+        if char == "0":
+            digit = 0
+        else if char == "1":
+            digit = 1
+        else if char == "2":
+            digit = 2
+        else if char == "3":
+            digit = 3
+        else if char == "4":
+            digit = 4
+        else if char == "5":
+            digit = 5
+        else if char == "6":
+            digit = 6
+        else if char == "7":
+            digit = 7
+        else if char == "8":
+            digit = 8
+        else if char == "9":
+            digit = 9
+        else:
+            raise INVALID_INT
+        num = num * 10 + digit
+
+    return sign * num
+
+async main():
+    give @a writable_book
+    while true:
+        for player in @a:
+            input: String = player.SelectedItem.title:
+            if input == "":
+                continue
+            
+            num: Int
+            try:
+                num = parse_int(input)
+            except e: int:
+                if e == INVALID_INT:
+                    tell player "Invalid integer"
+                continue
+
+            primes: &List<Int> = find_primes(num)
+            count: Int = len primes
+            for p: Int = 0; p < count; p += 1:
+                tell player "\{(*primes)[p]}"
+        
+        sleep 1t

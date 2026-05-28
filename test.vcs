@@ -1,0 +1,10 @@
+main():
+    value: Int = foo()
+
+foo() -> Int:
+    value: Int = bar()
+    return value - 200
+
+bar() -> Int:
+    value: Int = 1000
+    return value * 2
