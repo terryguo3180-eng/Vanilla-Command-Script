@@ -503,7 +503,7 @@ def main():
 
         if tree is None:
             last_tok = parser.diagnose()
-            parser.report(InvalidSyntax(parser.get_error_info_on(last_tok)))
+            parser.report(ParseError(parser.get_error_info_on(last_tok)))
 
         if not errors.ok():
             for issue in errors.issues:

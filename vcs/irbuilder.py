@@ -253,7 +253,7 @@ class IRBuilder(ASTNodeVisitor):
         name = node.target.token.value
         var = self.var_lookup(name)
         if var is None:
-            self.report(UndefinedSymbol(self.get_error_info_on(node.target), name))
+            self.report(VariableNotDeclared(self.get_error_info_on(node.target), name))
             target = IVar(name)  # TODO: Use an ErrorVar instead of IVar
         else:
             target = var
@@ -283,7 +283,7 @@ class IRBuilder(ASTNodeVisitor):
         name = node.target.token.value
         var = self.var_lookup(name)
         if var is None:
-            self.report(UndefinedSymbol(self.get_error_info_on(node.target), name))
+            self.report(VariableNotDeclared(self.get_error_info_on(node.target), name))
             target = IVar(name)  # TODO: Use an ErrorVar instead of IVar
         else:
             target = var
@@ -758,7 +758,7 @@ class IRBuilder(ASTNodeVisitor):
         name = node.token.value
         var = self.var_lookup(name)
         if var is None:
-            self.report(UndefinedSymbol(self.get_error_info_on(node), name))
+            self.report(VariableNotDeclared(self.get_error_info_on(node), name))
             var = IVar(name)  # TODO: Use ErrorVar instead of IVar
 
         return var

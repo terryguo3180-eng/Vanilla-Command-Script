@@ -1,0 +1,186 @@
+correct_add(a: Int, b: Int) -> Int:
+    return a + b
+
+correct_mixed_math() -> Float:
+    x: Float = 5 + 3.2
+    y: Float = 2.5 * 2
+    z: Float = (x + y) / 2
+    return z
+
+correct_conditions() -> Bool:
+    a: Int = 10
+    b: Float = 5.5
+    c: Bool = (a > 5) and (b < 10.0) or not false
+    if c:
+        return true
+    else:
+        return false
+
+correct_loop_break_continue():
+    i: Int = 0
+    while i < 10:
+        if i == 5:
+            break
+        i = i + 1
+    for i: Int = 0; i < 10; i = i + 1:
+        if i % 2 == 0:
+            continue
+        # do nothing
+    pass
+
+correct_swap():
+    a: Int = 1
+    b: Int = 2
+    a <-> b
+
+correct_default_call():
+    func_with_defaults()
+    func_with_defaults(20)
+    func_with_defaults(y=false)
+
+func_with_defaults(x: Int = 10, y: Bool = true):
+    pass
+
+correct_scope():
+    x: Int = 100
+    if x > 0:
+        x: Bool = true
+        y: Int = 200
+    y: Float = 3.14
+
+test_unassignable_type():
+    a: Int = true
+    b: Bool = 5
+    c: Float = 10
+    d: Int = 5.5
+    e: Int = correct_add(1, true)
+
+test_undeclared():
+    x: Int = undeclared_var
+    y: Int = z + 5
+    a: Bool = undeclared_func(1)
+
+test_redeclaration():
+    a: Int = 1
+    a: Bool = true
+    if true:
+        b: Int = 2
+        b: Float = 3.0
+
+test_break_continue():
+    break
+    continue
+    if true:
+        break
+    while false:
+        pass
+    break
+
+func_params(a: Int, b: Bool, c: Float = 3.14) -> Int:
+    return a
+
+func_no_default(a: Int, b: Int) -> Int:
+    return a + b
+
+test_call_errors():
+    func_params(1, true, 2.5, 100)
+    func_no_default(1, 2, 3)
+    func_params(1)
+    func_no_default(1)
+    func_params(1, true, extra=99)
+    func_params(1, true, b=false)
+    func_params(a=1, b=true, a=2)
+    unknown_func()
+    unknown_func(1, 2)
+
+duplicate_func() -> Int:
+    return 1
+
+duplicate_func() -> Int:
+    return 2
+
+test_binary_ops():
+    x: Int = 5 + false
+    y: Bool = 5 > true
+    z: Bool = true + false
+    w: Int = 5.5 + 2
+    cmp_ok: Bool = 5 == 5.0
+    cmp_err: Bool = 5 == true
+
+test_unary_ops():
+    a: Int = -true
+    b: Int = +false
+    c: Int = -0.5
+    d: Bool = not 5
+
+func_returns_int() -> Int:
+    return true
+
+func_returns_void():
+    return 5
+
+func_bad_default(a: Int = true) -> Int:
+    return a
+
+test_swap_type_mismatch():
+    a: Int = 1
+    b: Bool = true
+    a <-> b
+
+test_augassign_mismatch():
+    a: Int = 5
+    a += false
+
+test_if_expr_typing():
+    x: Int = 1 if true else false
+
+func_default_undeclared(a: Int = undefined_var) -> Int:
+    return a
+
+deep_nested():
+    a: Int = 10
+    if a > 5:
+        b: Int = 20
+        if b < 30:
+            c: Bool = true
+            while c:
+                d: Float = 3.14
+                for e: Int = 0; e < 5; e = e + 1:
+                    f: Int = e * 2
+                    g: Int = f + (1 if true else 2)
+                    e: Bool = false
+                h: Int = g
+            break
+        continue
+    a: Float = 2.5
+
+complex_calls():
+    correct_add(10, 20)
+    func_params(1, b=true)
+    func_params(a=5, b=false, c=2.0)
+    func_no_default(10, 20, 30)
+    func_no_default(10)
+    func_params(a=1, a=2, b=true)
+
+massive_expr() -> Float:
+    result: Float = (5 + 3.2) * (10 - 2.5) / (2 + (5 if true else 3))
+    bad: Int = 10 + (true and false)
+    cmp: Bool = (5 + 2.5) > (3 * 1.2)
+    return result
+
+main():
+    correct_add(1, 2)
+    correct_mixed_math()
+    test_unassignable_type()
+    test_undeclared()
+    test_redeclaration()
+    test_break_continue()
+    test_call_errors()
+    test_binary_ops()
+    test_unary_ops()
+    func_returns_int()
+    test_swap_type_mismatch()
+    test_augassign_mismatch()
+    deep_nested()
+    complex_calls()
+    massive_expr()

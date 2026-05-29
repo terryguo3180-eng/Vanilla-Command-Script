@@ -424,7 +424,7 @@ class Parser:
         return self.get_error_info_on(self._peek())
     
     def parse(self):
-        return self._start() or [Module(body=[]), self.report(InvalidSyntax(self.get_error_info_on(self.diagnose())))][0]
+        return self._start() or [Module(body=[]), self.report(ParseError(self.get_error_info_on(self.diagnose())))][0]
 
     @memoize
     def _start(self) -> Module | None:
@@ -676,7 +676,7 @@ class Parser:
 
     @memoize
     def _simple_stmt(self) -> Statement | None:
-        # simple_stmt: var_decl | assign_stmt | augassign_stmt | swap_stmt | 'return' expression | 'break' | 'continue' | 'pass' | expression
+        # simple_stmt: var_decl | assign_stmt | augassign_stmt | swap_stmt | 'return' expression? | 'break' | 'continue' | 'pass' | expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -703,7 +703,7 @@ class Parser:
         if (
             (kw := self._accept('return'))
             and
-            (v := self._expression())
+            (v := self._expression(),)
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
@@ -2081,7 +2081,7 @@ def main():
 
         if tree is None:
             last_tok = parser.diagnose()
-            parser.report(InvalidSyntax(parser.get_error_info_on(last_tok)))
+            parser.report(ParseError(parser.get_error_info_on(last_tok)))
 
         if not errors.ok():
             for issue in errors.issues:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from vcs.lexer import TokenInfo
+
+if TYPE_CHECKING:
+    from vcs.semantic import TypeInfo
 
 
 class ASTNode:
@@ -404,7 +407,11 @@ class ForStatement(Statement):
 # Expressions
 
 
-class Expression(ASTNode): ...
+class Expression(ASTNode):
+    __slots__ = ("type_info",)
+
+    def annotate_type(self, type: TypeInfo):
+        self.type_info = type
 
 
 class IfExpression(Expression):

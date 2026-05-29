@@ -53,10 +53,7 @@ class CompilerError(Exception):
         self.message = "Unknown"
 
 
-class LexError(CompilerError): ...
-
-
-class InvalidSyntax(LexError):
+class LexError(CompilerError):
     code = counter()
     
     def __init__(self, info: ErrorInfo, warning=False):
@@ -144,7 +141,28 @@ class InvalidCharacter(LexError):
         self.message = f"Invalid character '{char}'"
 
 
-class ParseError(CompilerError): ...
+class ParseError(CompilerError):
+    code = counter()
+    
+    def __init__(self, info: ErrorInfo, warning=False):
+        super().__init__(info, warning)
+        self.message = "Invalid syntax"
+
+
+class BreakOutsideLoop(ParseError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, warning=False):
+        super().__init__(info, warning)
+        self.message = "Break statement outside loop"
+
+
+class ContinueOutsideLoop(ParseError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, warning=False):
+        super().__init__(info, warning)
+        self.message = "Continue statement outside loop"
 
 
 class ExpectationFailed(ParseError):
@@ -155,7 +173,12 @@ class ExpectationFailed(ParseError):
         self.message = f"Expected {expected}"
 
 
-class SemanticError(CompilerError): ...
+class SemanticError(CompilerError):
+    code = counter()
+    
+    def __init__(self, info: ErrorInfo, warning=False):
+        super().__init__(info, warning)
+        self.message = "Invalid semantic"
 
 
 class FunctionDeclared(SemanticError):
@@ -166,12 +189,28 @@ class FunctionDeclared(SemanticError):
         self.message = f"Function '{name}' has already been declared"
 
 
+class FunctionNotDeclared(SemanticError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, name: str, warning=False):
+        super().__init__(info, warning)
+        self.message = f"Undefined function '{name}'"
+
+
 class VariableDeclared(SemanticError):
     code = counter()
 
     def __init__(self, info: ErrorInfo, name: str, warning=False):
         super().__init__(info, warning)
         self.message = f"Variable '{name}' has already been declared"
+
+
+class VariableNotDeclared(SemanticError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, name: str, warning=False):
+        super().__init__(info, warning)
+        self.message = f"Undefined identifier '{name}'"
 
 
 class UnassignableType(SemanticError):
@@ -182,28 +221,30 @@ class UnassignableType(SemanticError):
         self.message = f"Type '{actual}' is not assignable to declared type '{expected}'"
 
 
+class InvalidBinaryOpTypes(SemanticError):
+    code = counter()
+
+    def __init__(
+        self, info: ErrorInfo, left_type: str, right_type: str, op: str, warning=False
+    ):
+        super().__init__(info, warning)
+        self.message = f"Invalid operand types for binary '{op}': '{left_type}' and '{right_type}'"
+
+
+class InvalidUnaryOpType(SemanticError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, op_type: str, op: str, warning=False):
+        super().__init__(info, warning)
+        self.message = f"Invalid operand type for unary '{op}': '{op_type}'"
+
+
 class InvalidAssignment(SemanticError):
     code = counter()
 
     def __init__(self, info: ErrorInfo, target: str, warning=False):
         super().__init__(info, warning)
         self.message = f"{target} can't be used for assignment"
-
-
-class BoolInComparison(SemanticError):
-    code = counter()
-
-    def __init__(self, info: ErrorInfo, warning=False):
-        super().__init__(info, warning)
-        self.message = "'Bool' type can't be used in comparisons"
-
-
-class BoolInArithmetic(SemanticError):
-    code = counter()
-
-    def __init__(self, info: ErrorInfo, warning=False):
-        super().__init__(info, warning)
-        self.message = "'Bool' type can't be used in arithmetics"
 
 
 class InvalidType(SemanticError):
@@ -274,15 +315,10 @@ class UnexpectedKwarg(SemanticError):
 
     def __init__(self, info: ErrorInfo, func_name: str, kwargs: list[str], warning=False):
         super().__init__(info, warning)
-        self.message = f"'{func_name}' got an unexpected keyword argument: '{", ".join(kwargs)}'"
-
-
-class UndefinedSymbol(SemanticError):
-    code = counter()
-
-    def __init__(self, info: ErrorInfo, name: str, warning=False):
-        super().__init__(info, warning)
-        self.message = f"Undefined identifier '{name}'"
+        if len(kwargs) == 1:
+            self.message = f"'{func_name}' got an unexpected keyword argument: '{kwargs[0]}'"
+            return
+        self.message = f"'{func_name}' got unexpected keyword arguments: '{", ".join(kwargs)}'"
 
 
 def dump_error(error: CompilerError, fancy=True):

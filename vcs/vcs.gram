@@ -2,7 +2,7 @@
 from vcs.astnodes import *
 '''
 @class Parser
-@fallback '[Module(body=[]), self.report(InvalidSyntax(self.get_error_info_on(self.diagnose())))][0]'
+@fallback '[Module(body=[]), self.report(ParseError(self.get_error_info_on(self.diagnose())))][0]'
 
 start[Module]: m=module ENDMARKER {m}
 module[Module]: f=toplevel+ { Module(body=f, LOCATIONS) }
@@ -54,7 +54,7 @@ simple_stmt[Statement]:
     | assign_stmt
     | augassign_stmt
     | swap_stmt
-    | kw='return' v=expression { ReturnStatement(return_token=kw, value=v, LOCATIONS) }
+    | kw='return' v=expression? { ReturnStatement(return_token=kw, value=v, LOCATIONS) }
     | kw='break' { BreakStatement(break_token=kw, LOCATIONS) }
     | kw='continue' { ContinueStatement(continue_token=kw, LOCATIONS) }
     | kw='pass' { PassStatement(pass_token=kw, LOCATIONS) }
