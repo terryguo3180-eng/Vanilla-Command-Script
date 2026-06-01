@@ -50,6 +50,12 @@ class ParameterInfo:
         self.default_node = default_node
 
 
+class FunctionSignature:
+    def __init__(self, param_infos: list[ParameterInfo], return_type: TypeInfo):
+        self.param_infos = param_infos
+        self.return_type = return_type
+
+
 class SemanticAnalyzer(ASTNodeVisitor):
     def __init__(
         self, errors: ErrorCollector,
@@ -58,8 +64,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self.errors = errors
         self.get_error_info_on = get_error_info_on
 
-        self.func_signatures: dict[str, list[ParameterInfo]] = {}
-        self.func_returns: dict[str, TypeInfo] = {}
+        self.func_signatures: dict[str, FunctionSignature] = {}
         self.scopes: list[dict[str, TypeInfo]] = []
 
         self.current_return_type: TypeInfo
@@ -103,8 +108,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
                 param.name_token.value, declared_type, param.default
             ))
         
-        self.func_signatures[name] = param_infos
-        self.func_returns[name] = return_type
+        self.func_signatures[name] = FunctionSignature(param_infos, return_type)
 
     def declare_var(self, name: str, declared_type: TypeInfo, value: Expression | None):
         self.register_name(name, declared_type)
@@ -130,6 +134,8 @@ class SemanticAnalyzer(ASTNodeVisitor):
         return None
 
     def visit_Module(self, node: Module):
+        self.push_scope()
+
         for sub in node.body:
             if isinstance(sub, FunctionDeclaration):
                 return_type = (
@@ -147,11 +153,14 @@ class SemanticAnalyzer(ASTNodeVisitor):
         for sub in node.body:
             self.visit(sub)
     
+        self.pop_scope()
+
     def visit_FunctionDeclaration(self, node: FunctionDeclaration):
         self.push_scope()
         name = node.name_token.value
-        self.current_return_type = self.func_returns[name]
-        for param_info in self.func_signatures[name]:
+        signature = self.func_signatures[name]
+        self.current_return_type = signature.return_type
+        for param_info in signature.param_infos:
             self.declare_var(
                 param_info.name, param_info.type_info, param_info.default_node
             )
@@ -180,7 +189,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         declared_type = self.visit(node.type)
         self.declare_var(name, declared_type, node.value)
 
-    def check_assignment(self, target: Expression, value: Expression):
+    def check_assignment(self, target: LeftExpression, value: Expression):
         self.visit(target)
         self.visit(value)
 
@@ -433,8 +442,9 @@ class SemanticAnalyzer(ASTNodeVisitor):
             node.annotate_type(ErrorTypeInfo())
             return
         
-        params = self.func_signatures[name]
-        returntype = self.func_returns[name]
+        signature = self.func_signatures[name]
+        params = signature.param_infos
+        returntype = signature.return_type
         args = node.args
 
         psargs = [arg for arg in args if isinstance(arg, PositionalArgument)]

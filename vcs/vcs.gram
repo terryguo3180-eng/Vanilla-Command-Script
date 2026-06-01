@@ -61,13 +61,13 @@ simple_stmt[Statement]:
     | e=expression { ExpressionStatement(expression=e, LOCATIONS) }
 
 assign_stmt[AssignStatement]:
-    | t=name_store o='=' v=expression { AssignStatement(target=t, equal_token=o, value=v, LOCATIONS) }
+    | t=left_expr o='=' v=expression { AssignStatement(target=t, equal_token=o, value=v, LOCATIONS) }
 
 augassign_stmt[AugAssignStatement]:
-    | t=name_store o=augassign_op v=expression { AugAssignStatement(target=t, op=o, value=v, LOCATIONS) }
+    | t=left_expr o=augassign_op v=expression { AugAssignStatement(target=t, op=o, value=v, LOCATIONS) }
 
 swap_stmt[SwapStatement]:
-    | l=name_store o='<->' r=name_store { SwapStatement(left=l, swap_token=o, right=r) }
+    | l=left_expr o='<->' r=left_expr { SwapStatement(left=l, swap_token=o, right=r) }
 
 augassign_op[ArithmeticOp]:
     | a='+=' { AddOp(token=a, LOCATIONS) }
@@ -185,15 +185,12 @@ atom_expr[Expression]:
     }
     | a='true' { Constant(value=a, LOCATIONS) }
     | a='false' { Constant(value=a, LOCATIONS) }
-    | name_load
+    | a=NAME { Identifier(token=a, context=Load(), LOCATIONS) }
     | a=(INT | FLOAT) { Constant(value=a, LOCATIONS) }
     | a=STRING { Constant(value=a, LOCATIONS) }
     | '(' a=expression ')' { a }
 
-name_load[Identifier]:
-    | a=NAME { Identifier(token=a, context=Load(), LOCATIONS) }
-
-name_store[Identifier]:
+left_expr[LeftExpression]:
     | a=NAME { Identifier(token=a, context=Store(), LOCATIONS) }
 
 argument_list[list[Argument]]:

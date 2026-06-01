@@ -249,7 +249,7 @@ class AssignStatement(Statement):
 
     def __init__(
         self,
-        target: Expression,
+        target: LeftExpression,
         equal_token: TokenInfo,
         value: Expression,
         **loc,
@@ -263,7 +263,13 @@ class AssignStatement(Statement):
 class AugAssignStatement(Statement):
     __slots__ = ("target", "op", "value")
 
-    def __init__(self, target: Expression, op: ArithmeticOp, value: Expression, **loc):
+    def __init__(
+        self,
+        target: LeftExpression,
+        op: ArithmeticOp,
+        value: Expression,
+        **loc
+    ):
         super().__init__(**loc)
         self.target = target
         self.op = op
@@ -273,7 +279,13 @@ class AugAssignStatement(Statement):
 class SwapStatement(Statement):
     __slots__ = ("left", "swap_token", "right")
 
-    def __init__(self, left: Expression, swap_token: TokenInfo, right: Expression, **loc):
+    def __init__(
+        self,
+        left: LeftExpression,
+        swap_token: TokenInfo,
+        right: LeftExpression,
+        **loc
+    ):
         super().__init__(**loc)
         self.left = left
         self.swap_token = swap_token
@@ -414,6 +426,9 @@ class Expression(ASTNode):
         self.type_info = type
 
 
+class LeftExpression(Expression): ...
+
+
 class IfExpression(Expression):
     __slots__ = ("test", "if_token", "body", "else_token", "orelse")
 
@@ -502,7 +517,7 @@ class Constant(Expression):
         self.value = value
 
 
-class Identifier(Expression):
+class Identifier(LeftExpression):
     __slots__ = ("token", "context")
 
     def __init__(self, token: TokenInfo, context: Context, **loc):

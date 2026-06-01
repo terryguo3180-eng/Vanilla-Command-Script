@@ -741,12 +741,12 @@ class Parser:
 
     @memoize
     def _assign_stmt(self) -> AssignStatement | None:
-        # assign_stmt: name_store '=' expression
+        # assign_stmt: left_expr '=' expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (t := self._name_store())
+            (t := self._left_expr())
             and
             (o := self._accept('='))
             and
@@ -760,12 +760,12 @@ class Parser:
 
     @memoize
     def _augassign_stmt(self) -> AugAssignStatement | None:
-        # augassign_stmt: name_store augassign_op expression
+        # augassign_stmt: left_expr augassign_op expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (t := self._name_store())
+            (t := self._left_expr())
             and
             (o := self._augassign_op())
             and
@@ -779,14 +779,14 @@ class Parser:
 
     @memoize
     def _swap_stmt(self) -> SwapStatement | None:
-        # swap_stmt: name_store '<->' name_store
+        # swap_stmt: left_expr '<->' left_expr
         mark = self._mark()
         if (
-            (l := self._name_store())
+            (l := self._left_expr())
             and
             (o := self._accept('<->'))
             and
-            (r := self._name_store())
+            (r := self._left_expr())
         ):
             return SwapStatement(left=l, swap_token=o, right=r)
         self._reset(mark)
@@ -1476,7 +1476,7 @@ class Parser:
 
     @memoize_left_rec
     def _atom_expr(self) -> Expression | None:
-        # atom_expr: uop atom_expr | atom_expr '(' argument_list? ')' | 'true' | 'false' | name_load | (INT | FLOAT) | STRING | '(' expression ')'
+        # atom_expr: uop atom_expr | atom_expr '(' argument_list? ')' | 'true' | 'false' | NAME | (INT | FLOAT) | STRING | '(' expression ')'
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -1517,9 +1517,11 @@ class Parser:
             return Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (name_load := self._name_load())
+            (a := self._accept(TokenType.NAME))
         ):
-            return name_load
+            tok = self._last_nonblank_token()
+            end_lineno, end_column = tok.end_lineno, tok.end_column
+            return Identifier(token=a, context=Load(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._tmp_15())
@@ -1547,23 +1549,8 @@ class Parser:
         return None
 
     @memoize
-    def _name_load(self) -> Identifier | None:
-        # name_load: NAME
-        mark = self._mark()
-        tok = self._peek()
-        start_lineno, start_column = tok.lineno, tok.column
-        if (
-            (a := self._accept(TokenType.NAME))
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Identifier(token=a, context=Load(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        return None
-
-    @memoize
-    def _name_store(self) -> Identifier | None:
-        # name_store: NAME
+    def _left_expr(self) -> LeftExpression | None:
+        # left_expr: NAME
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
