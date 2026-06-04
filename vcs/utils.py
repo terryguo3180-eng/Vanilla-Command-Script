@@ -178,7 +178,7 @@ class CompareOp(metaclass=SingletonMeta): ...
 class EqOp(CompareOp):
     def __str__(self): return "=="
 
-class NotEqOp(CompareOp):
+class NeOp(CompareOp):
     def __str__(self): return "!="
 
 class GtOp(CompareOp):
@@ -187,8 +187,8 @@ class GtOp(CompareOp):
 class LtOp(CompareOp):
     def __str__(self): return "<"
 
-class GtEOp(CompareOp):
+class GeOp(CompareOp):
     def __str__(self): return ">="
 
-class LtEOp(CompareOp):
+class LeOp(CompareOp):
     def __str__(self): return "<="

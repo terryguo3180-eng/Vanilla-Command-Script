@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import ClassVar
 
 from vcs import utils
 
@@ -25,67 +27,72 @@ class ImmValue:
         return str(self.value)
 
 
+class ScoreOperation(Command): ...
+
+
 @dataclass
-class ScoreOperation(Command):
+class SimpleScoreOperation(ScoreOperation):
     var: ScoreVar
     value: ScoreVar | ImmValue
 
+    _imm_op: ClassVar[str]
+    _var_op: ClassVar[str]
 
-class ScoreSet(ScoreOperation):
     def __str__(self):
         if isinstance(self.value, ImmValue):
-            return f"scoreboard players set {self.var} {self.value}"
-        return f"scoreboard players operation {self.var} = {self.value}"
+            return f"scoreboard players {self._imm_op} {self.var} {self.value}"
+        return f"scoreboard players operation {self.var} {self._var_op} {self.value}"
 
 
-class ScoreAdd(ScoreOperation):
-    def __str__(self):
-        if isinstance(self.value, ImmValue):
-            return f"scoreboard players add {self.var} {self.value}"
-        return f"scoreboard players operation {self.var} += {self.value}"
+class ScoreSet(SimpleScoreOperation):
+    _imm_op = "set"
+    _var_op = "="
 
 
-class ScoreSub(ScoreOperation):
-    def __str__(self):
-        if isinstance(self.value, ImmValue):
-            return f"scoreboard players remove {self.var} {self.value}"
-        return f"scoreboard players operation {self.var} += {self.value}"
+class ScoreAdd(SimpleScoreOperation):
+    _imm_op = "add"
+    _var_op = "+="
 
 
-class ScoreMul(ScoreOperation):
-    def __str__(self):
-        assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} *= {self.value}"
+class ScoreSub(SimpleScoreOperation):
+    _imm_op = "remove"
+    _var_op = "-="
 
 
-class ScoreDiv(ScoreOperation):
-    def __str__(self):
-        assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} /= {self.value}"
+@dataclass
+class BinaryScoreOperation(ScoreOperation):
+    var: ScoreVar
+    value: ScoreVar
 
+    _var_op: ClassVar[str]
 
-class ScoreMod(ScoreOperation):
     def __str__(self):
         assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} %= {self.value}"
+        return f"scoreboard players operation {self.var} {self._var_op} {self.value}"
 
 
-class ScoreMin(ScoreOperation):
-    def __str__(self):
-        assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} < {self.value}"
+class ScoreMul(BinaryScoreOperation):
+    _var_op = "*="
 
 
-class ScoreMax(ScoreOperation):
-    def __str__(self):
-        assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} > {self.value}"
+class ScoreDiv(BinaryScoreOperation):
+    _var_op = "/="
 
 
-class ScoreSwp(ScoreOperation):
-    def __str__(self):
-        assert isinstance(self.value, ScoreVar)
-        return f"scoreboard players operation {self.var} >< {self.value}"
+class ScoreMod(BinaryScoreOperation):
+    _var_op = "%="
+
+
+class ScoreMin(BinaryScoreOperation):
+    _var_op = "<"
+
+
+class ScoreMax(BinaryScoreOperation):
+    _var_op = ">"
+
+
+class ScoreSwp(BinaryScoreOperation):
+    _var_op = "><"
 
 
 @dataclass
@@ -116,14 +123,69 @@ class IfScore(ExecuteCond):
         match self.op:
             case utils.EqOp():
                 return f"if score {self.left} matches {value}"
-            case utils.NotEqOp():
+            case utils.NeOp():
                 return f"unless score {self.left} matches {value}"
             case utils.GtOp():
                 return f"if score {self.left} matches {value + 1}.."
             case utils.LtOp():
                 return f"if score {self.left} matches ..{value - 1}"
-            case utils.GtEOp():
+            case utils.GeOp():
                 return f"if score {self.left} matches {value}.."
             case _:
-                assert isinstance(self.op, utils.LtEOp)
+                assert isinstance(self.op, utils.LeOp)
                 return f"if score {self.left} matches ..{value}"
+
+
+class Call(Command):
+    func: MCFunction
+
+    def __str__(self):
+        return f"function {self.func}"
+
+
+class MCFunction:
+    def __init__(self, namespace: str, name: str):
+        self.namespace = namespace
+        self.name = name
+        self.commands: list[Command] = []
+    
+    def emit(self, command: Command):
+        self.commands.append(command)
+
+    def __str__(self):
+        return f"{self.namespace}:{self.name}"
+    
+    def get_content(self):
+        func_str = f"[{self}]"
+        for cmd in self.commands:
+            func_str += f"  {cmd}\n"
+        return func_str.rstrip()
+
+
+class Datapack:
+    def __init__(self, namespace: str):
+        self.namespace = namespace
+        self.mcfunctions: list[MCFunction] = []
+    
+    def add_func(self, name: str):
+        mcf = MCFunction(self.namespace, name)
+        self.mcfunctions.append(mcf)
+        return mcf
+
+
+class DatapackBuilder:
+    def __init__(self, namespace: str):
+        self.namespace = namespace
+        self.datapack = Datapack(namespace)
+        self.cur_func: MCFunction
+
+    @contextmanager
+    def with_func(self, name: str):
+        prev = self.cur_func
+        cur_func = self.datapack.add_func(name)
+        self.cur_func = cur_func
+        yield cur_func
+        self.cur_func = prev
+    
+    def emit(self, command: Command):
+        self.cur_func.emit(command)

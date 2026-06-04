@@ -277,7 +277,8 @@ class ExcessPosArgs(SemanticError):
     ):
         super().__init__(info, warning)
         plural = "s" if expected != 1 else ""
-        self.message = f"'{func_name}' takes {expected} positional argument{plural} but {given} {'were' if given != 1 else 'was'} given"
+        verb = 'were' if given != 1 else 'was'
+        self.message = f"'{func_name}' takes {expected} positional argument{plural} but {given} {verb} given"
 
 
 class ExcessPosArgsDefault(SemanticError):
@@ -294,7 +295,8 @@ class ExcessPosArgsDefault(SemanticError):
     ):
         super().__init__(info, warning)
         plural = "s" if max_expected != 1 else ""
-        self.message = f"'{func_name}' takes from {min_expected} to {max_expected} positional argument{plural} but {given} {'were' if given != 1 else 'was'} given"
+        verb = 'were' if given != 1 else 'was'
+        self.message = f"'{func_name}' takes from {min_expected} to {max_expected} positional argument{plural} but {given} {verb} given"
 
 
 class MissingParams(SemanticError):

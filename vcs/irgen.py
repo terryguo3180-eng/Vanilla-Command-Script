@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from contextlib import contextmanager
+from typing import overload
 
 from vcs import astnodes as ast
 from vcs import ir
@@ -27,16 +29,31 @@ class IRGenerator(ast.ASTNodeVisitor):
         self._symbol_map: dict[sem.Symbol, ir.NamedValue] = {}
         self._func_map: dict[str, ir.Function] = {}
         self._loop_stack: list[tuple[ir.BasicBlock, ir.BasicBlock]] = []
-
         self._block_id = 0
+
+    @overload
+    def visit(self, node: ast.Module) -> None: ...
+    @overload
+    def visit(self, node: ast.FunctionDeclaration) -> None: ...
+    @overload
+    def visit(self, node: ast.Comment) -> None: ...
+    @overload
+    def visit(self, node: ast.Statement) -> None: ...
+    @overload
+    def visit(self, node: ast.LeftExpression) -> ir.NamedValue: ...
+    @overload
+    def visit(self, node: ast.Expression) -> ir.Value: ...
+
+    def visit(self, node):
+        return super().visit(node)
 
     def emit(self, inst: ir.Instruction):
         self.builder.emit(inst)
 
     def _is_terminated(self) -> bool:
-        if not self.builder.current_block.instructions:
+        if not self.builder.cur_block.instructions:
             return False
-        last = self.builder.current_block.instructions[-1]
+        last = self.builder.cur_block.instructions[-1]
         return isinstance(last, (ir.Return, ir.Branch, ir.Goto))
 
 
@@ -72,7 +89,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         for sub in node.body:
             if isinstance(sub, ast.FunctionDeclaration):
                 func = self._get_irfunc(sub.name_token.value, sub.signature)
-                self.module.add_function(func)
+                self.module.add_func(func)
                 self._func_map[sub.name_token.value] = func
 
         for sub in node.body:
@@ -129,6 +146,27 @@ class IRGenerator(ast.ASTNodeVisitor):
         value = self.visit(node.value)
         self.emit(ir.Load(value, target))
 
+    def _get_int_float_binop(self, op: ast.ArithmeticOp) -> tuple[
+        type[ir.IntBinaryInstr], type[ir.FloatBinaryInstr]
+    ]:
+        return {
+            ast.AddOp: (ir.IAdd, ir.FAdd),
+            ast.SubOp: (ir.ISub, ir.FSub),
+            ast.MulOp: (ir.IMul, ir.FMul),
+            ast.DivOp: (ir.IDiv, ir.FDiv),
+            ast.ModOp: (ir.IMod, ir.FMod),
+        }[type(op)]
+    
+    def _get_cmp_op(self, op: ast.CompareOp) -> utils.CompareOp:
+        return {
+            ast.EqOp: utils.EqOp,
+            ast.NeOp: utils.NeOp,
+            ast.LtOp: utils.LtOp,
+            ast.GtOp: utils.GtOp,
+            ast.LeOp: utils.LeOp,
+            ast.GeOp: utils.GeOp,
+        }[type(op)]()
+
     def visit_AugAssignStatement(self, node: ast.AugAssignStatement):
         target = self.visit(node.target)
         value = self.visit(node.value)
@@ -139,14 +177,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         float_float = isinstance(target_sem, sem.FloatTypeInfo) and isinstance(value_sem, sem.FloatTypeInfo)
         float_int = isinstance(target_sem, sem.FloatTypeInfo) and isinstance(value_sem, sem.IntTypeInfo)
 
-        op_map = {
-            ast.AddOp: (ir.IAdd, ir.FAdd),
-            ast.SubOp: (ir.ISub, ir.FSub),
-            ast.MulOp: (ir.IMul, ir.FMul),
-            ast.DivOp: (ir.IDiv, ir.FDiv),
-            ast.ModOp: (ir.IMod, ir.FMod),
-        }
-        i_op, f_op = op_map[type(node.op)]
+        i_op, f_op = self._get_int_float_binop(node.op)
 
         if int_int:
             self.emit(i_op(target, value, target))
@@ -277,13 +308,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         def is_float(t): return isinstance(t, sem.FloatTypeInfo)
 
         if isinstance(node.op, ast.ArithmeticOp):
-            i_op, f_op = {
-                ast.AddOp: (ir.IAdd, ir.FAdd),
-                ast.SubOp: (ir.ISub, ir.FSub),
-                ast.MulOp: (ir.IMul, ir.FMul),
-                ast.DivOp: (ir.IDiv, ir.FDiv),
-                ast.ModOp: (ir.IMod, ir.FMod),
-            }[type(node.op)]
+            i_op, f_op = self._get_int_float_binop(node.op)
 
             if is_int(left_sem) and is_int(right_sem):
                 self.emit(i_op(lhs, rhs, target))
@@ -301,14 +326,7 @@ class IRGenerator(ast.ASTNodeVisitor):
                 self.emit(f_op(lhs, rhs, target))
 
         elif isinstance(node.op, ast.CompareOp):
-            op = {
-                ast.EqOp: utils.EqOp,
-                ast.NotEqOp: utils.NotEqOp,
-                ast.LtOp: utils.LtOp,
-                ast.GtOp: utils.GtOp,
-                ast.LtEOp: utils.LtEOp,
-                ast.GtEOp: utils.GtEOp,
-            }[type(node.op)]()
+            op = self._get_cmp_op(node.op)
 
             if is_int(left_sem) and is_int(right_sem):
                 self.emit(ir.ICmp(lhs, rhs, target, op))

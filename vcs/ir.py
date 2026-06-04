@@ -97,7 +97,7 @@ class IntBinaryInstr(Instruction):
     rhs: Value
     target: NamedValue
 
-    opname: ClassVar[str]
+    _opname: ClassVar[str]
 
     def __post_init__(self):
         if not (
@@ -108,27 +108,27 @@ class IntBinaryInstr(Instruction):
             raise ValueError(self)
         
     def __str__(self):
-        return f"{self.target} = {self.opname} {self.lhs}, {self.rhs}"
+        return f"{self.target} = {self._opname} {self.lhs}, {self.rhs}"
 
 
 class IAdd(IntBinaryInstr):
-    opname = "iadd"
+    _opname = "iadd"
 
 
 class ISub(IntBinaryInstr):
-    opname = "isub"
+    _opname = "isub"
 
 
 class IMul(IntBinaryInstr):
-    opname = "imul"
+    _opname = "imul"
 
 
 class IDiv(IntBinaryInstr):
-    opname = "idiv"
+    _opname = "idiv"
 
 
 class IMod(IntBinaryInstr):
-    opname = "imod"
+    _opname = "imod"
 
 
 @dataclass
@@ -137,7 +137,7 @@ class FloatBinaryInstr(Instruction):
     rhs: Value
     target: NamedValue
 
-    opname: ClassVar[str]
+    _opname: ClassVar[str]
 
     def __post_init__(self):
         if not (
@@ -148,27 +148,27 @@ class FloatBinaryInstr(Instruction):
             raise ValueError(self)
         
     def __str__(self):
-        return f"{self.target} = {self.opname} {self.lhs}, {self.rhs}"
+        return f"{self.target} = {self._opname} {self.lhs}, {self.rhs}"
 
 
 class FAdd(FloatBinaryInstr):
-    opname = "fadd"
+    _opname = "fadd"
 
 
 class FSub(FloatBinaryInstr):
-    opname = "fsub"
+    _opname = "fsub"
 
 
 class FMul(FloatBinaryInstr):
-    opname = "fmul"
+    _opname = "fmul"
 
 
 class FDiv(FloatBinaryInstr):
-    opname = "fdiv"
+    _opname = "fdiv"
 
 
 class FMod(FloatBinaryInstr):
-    opname = "fmod"
+    _opname = "fmod"
 
 
 @dataclass
@@ -348,14 +348,14 @@ class Function(NamedValue):
         self.blocks.append(block)
         return block
 
-    def get_str(self):
+    def get_content(self):
         params = ', '.join(
             f'{n}: {t}' for n, t in zip(self.param_names, self.type.param_types)
         )
         func_str = f"{self.name}({params}) -> {self.type.return_type}:\n"
         for block in self.blocks:
-            func_str += f"  {block.get_content().replace(chr(10), chr(10) + '  ')}\n"
-        return func_str
+            func_str += f"  {block.get_content().replace('\n', '\n  ')}\n"
+        return func_str.rstrip()
 
 
 class Module:
@@ -363,14 +363,14 @@ class Module:
         self.name = name
         self.functions: list[Function] = []
     
-    def add_function(self, func: Function):
+    def add_func(self, func: Function):
         self.functions.append(func)
     
     def __str__(self):
-        module_str = f"module {self.name}\n\n"
+        module_str = f"module {self.name}:\n"
         for func in self.functions:
-            module_str += func.get_str() + "\n"
-        return module_str
+            module_str += f"  {func.get_content().replace('\n', '\n  ')}\n"
+        return module_str.rstrip()
 
 
 class IRBuilder:
@@ -384,10 +384,10 @@ class IRBuilder:
         return temp
     
     def set_block(self, block: BasicBlock):
-        self.current_block = block
+        self.cur_block = block
     
     def emit(self, inst: Instruction):
-        self.current_block.emit(inst)
+        self.cur_block.emit(inst)
     
     def call(self, func: Function, args: list[Value], target: NamedValue | None):
         if not isinstance(func.type.return_type, VoidType):

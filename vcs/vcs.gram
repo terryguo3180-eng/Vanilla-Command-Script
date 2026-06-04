@@ -137,11 +137,11 @@ comp_expr[ast.Expression]:
 
 compop[ast.BinaryOp]:
     | a='==' { ast.EqOp(token=a, LOCATIONS) }
-    | a='!=' { ast.NotEqOp(token=a, LOCATIONS) }
+    | a='!=' { ast.NeOp(token=a, LOCATIONS) }
     | a='<' { ast.LtOp(token=a, LOCATIONS) }
-    | a='<=' { ast.LtEOp(token=a, LOCATIONS) }
+    | a='<=' { ast.LeOp(token=a, LOCATIONS) }
     | a='>' { ast.GtOp(token=a, LOCATIONS) }
-    | a='>=' { ast.GtEOp(token=a, LOCATIONS) }
+    | a='>=' { ast.GeOp(token=a, LOCATIONS) }
 
 addop[ast.AddOp]: a='+' { ast.AddOp(token=a, LOCATIONS) }
 subop[ast.SubOp]: a='-' { ast.SubOp(token=a, LOCATIONS) }

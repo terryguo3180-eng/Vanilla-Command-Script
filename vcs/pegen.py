@@ -38,7 +38,6 @@ from typing import Any, Callable, ClassVar, cast
 from vcs import astnodes as ast
 from vcs import errors as err
 from vcs import lexer as lex
-
 {subheader}
 
 type Mark = int

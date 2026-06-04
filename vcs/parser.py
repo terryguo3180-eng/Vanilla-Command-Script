@@ -10,7 +10,6 @@ from vcs import errors as err
 from vcs import lexer as lex
 
 
-
 type Mark = int
 
 def _get_indent_closure() -> Callable[[int], str]:
@@ -1194,7 +1193,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ast.NotEqOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.NeOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('<'))
@@ -1208,7 +1207,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ast.LtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.LeOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('>'))
@@ -1222,7 +1221,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ast.GtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.GeOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
