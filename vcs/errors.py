@@ -221,6 +221,16 @@ class UnassignableType(SemanticError):
         self.message = f"Type '{actual}' is not assignable to declared type '{expected}'"
 
 
+class InvalidAugmentedOpTypes(SemanticError):
+    code = counter()
+
+    def __init__(
+        self, info: ErrorInfo, left_type: str, right_type: str, op: str, warning=False
+    ):
+        super().__init__(info, warning)
+        self.message = f"Invalid operand types for augmented '{op}': '{left_type}' and '{right_type}'"
+
+
 class InvalidBinaryOpTypes(SemanticError):
     code = counter()
 

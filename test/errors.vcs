@@ -31,7 +31,6 @@ correct_loop_break_continue():
 correct_swap():
     a: Int = 1
     b: Int = 2
-    a <-> b
 
 correct_default_call():
     func_with_defaults()
@@ -125,7 +124,6 @@ func_bad_default(a: Int = true) -> Int:
 test_swap_type_mismatch():
     a: Int = 1
     b: Bool = true
-    a <-> b
 
 test_augassign_mismatch():
     a: Int = 5
@@ -184,3 +182,6 @@ main():
     deep_nested()
     complex_calls()
     massive_expr()
+
+    a: Bool = 5
+    a += true

@@ -53,7 +53,6 @@ simple_stmt[Statement]:
     | var_decl
     | assign_stmt
     | augassign_stmt
-    | swap_stmt
     | kw='return' v=expression? { ReturnStatement(return_token=kw, value=v, LOCATIONS) }
     | kw='break' { BreakStatement(break_token=kw, LOCATIONS) }
     | kw='continue' { ContinueStatement(continue_token=kw, LOCATIONS) }
@@ -66,9 +65,6 @@ assign_stmt[AssignStatement]:
 augassign_stmt[AugAssignStatement]:
     | t=left_expr o=augassign_op v=expression { AugAssignStatement(target=t, op=o, value=v, LOCATIONS) }
 
-swap_stmt[SwapStatement]:
-    | l=left_expr o='<->' r=left_expr { SwapStatement(left=l, swap_token=o, right=r) }
-
 augassign_op[ArithmeticOp]:
     | a='+=' { AddOp(token=a, LOCATIONS) }
     | a='-=' { SubOp(token=a, LOCATIONS) }
@@ -76,8 +72,6 @@ augassign_op[ArithmeticOp]:
     | a='/=' { DivOp(token=a, LOCATIONS) }
     | a='//=' { FloorDivOp(token=a, LOCATIONS) }
     | a='%=' { ModOp(token=a, LOCATIONS) }
-    | a='<?=' { MinOp(token=a, LOCATIONS) }
-    | a='>?=' { MaxOp(token=a, LOCATIONS) }
 
 compound_stmt[Statement]:
     | if_stmt
@@ -141,8 +135,8 @@ not_expr[Expression]:
     | comp_expr
 
 comp_expr[Expression]:
-    | l=minmax_expr o=compop r=minmax_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
-    | minmax_expr
+    | l=sum_expr o=compop r=sum_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+    | sum_expr
 
 compop[BinaryOp]:
     | a='==' { EqOp(token=a, LOCATIONS) }
@@ -151,13 +145,6 @@ compop[BinaryOp]:
     | a='<=' { LtEOp(token=a, LOCATIONS) }
     | a='>' { GtOp(token=a, LOCATIONS) }
     | a='>=' { GtEOp(token=a, LOCATIONS) }
-
-minop[MinOp]: a='<?' { MinOp(token=a, LOCATIONS) }
-maxop[MaxOp]: a='>?' { MaxOp(token=a, LOCATIONS) }
-
-minmax_expr[Expression]:
-    | l=sum_expr o=(minop | maxop) r=minmax_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
-    | sum_expr
 
 addop[AddOp]: a='+' { AddOp(token=a, LOCATIONS) }
 subop[SubOp]: a='-' { SubOp(token=a, LOCATIONS) }

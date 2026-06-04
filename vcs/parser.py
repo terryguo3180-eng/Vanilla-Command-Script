@@ -676,7 +676,7 @@ class Parser:
 
     @memoize
     def _simple_stmt(self) -> Statement | None:
-        # simple_stmt: var_decl | assign_stmt | augassign_stmt | swap_stmt | 'return' expression? | 'break' | 'continue' | 'pass' | expression
+        # simple_stmt: var_decl | assign_stmt | augassign_stmt | 'return' expression? | 'break' | 'continue' | 'pass' | expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -694,11 +694,6 @@ class Parser:
             (augassign_stmt := self._augassign_stmt())
         ):
             return augassign_stmt
-        self._reset(mark)
-        if (
-            (swap_stmt := self._swap_stmt())
-        ):
-            return swap_stmt
         self._reset(mark)
         if (
             (kw := self._accept('return'))
@@ -778,23 +773,8 @@ class Parser:
         return None
 
     @memoize
-    def _swap_stmt(self) -> SwapStatement | None:
-        # swap_stmt: left_expr '<->' left_expr
-        mark = self._mark()
-        if (
-            (l := self._left_expr())
-            and
-            (o := self._accept('<->'))
-            and
-            (r := self._left_expr())
-        ):
-            return SwapStatement(left=l, swap_token=o, right=r)
-        self._reset(mark)
-        return None
-
-    @memoize
     def _augassign_op(self) -> ArithmeticOp | None:
-        # augassign_op: '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '<?=' | '>?='
+        # augassign_op: '+=' | '-=' | '*=' | '/=' | '//=' | '%='
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -839,20 +819,6 @@ class Parser:
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
             return ModOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        if (
-            (a := self._accept('<?='))
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MinOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        if (
-            (a := self._accept('>?='))
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MaxOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
@@ -1188,25 +1154,25 @@ class Parser:
 
     @memoize
     def _comp_expr(self) -> Expression | None:
-        # comp_expr: minmax_expr compop minmax_expr | minmax_expr
+        # comp_expr: sum_expr compop sum_expr | sum_expr
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (l := self._minmax_expr())
+            (l := self._sum_expr())
             and
             (o := self._compop())
             and
-            (r := self._minmax_expr())
+            (r := self._sum_expr())
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
             return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (minmax_expr := self._minmax_expr())
+            (sum_expr := self._sum_expr())
         ):
-            return minmax_expr
+            return sum_expr
         self._reset(mark)
         return None
 
@@ -1257,60 +1223,6 @@ class Parser:
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
             return GtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        return None
-
-    @memoize
-    def _minop(self) -> MinOp | None:
-        # minop: '<?'
-        mark = self._mark()
-        tok = self._peek()
-        start_lineno, start_column = tok.lineno, tok.column
-        if (
-            (a := self._accept('<?'))
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MinOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        return None
-
-    @memoize
-    def _maxop(self) -> MaxOp | None:
-        # maxop: '>?'
-        mark = self._mark()
-        tok = self._peek()
-        start_lineno, start_column = tok.lineno, tok.column
-        if (
-            (a := self._accept('>?'))
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MaxOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        return None
-
-    @memoize
-    def _minmax_expr(self) -> Expression | None:
-        # minmax_expr: sum_expr (minop | maxop) minmax_expr | sum_expr
-        mark = self._mark()
-        tok = self._peek()
-        start_lineno, start_column = tok.lineno, tok.column
-        if (
-            (l := self._sum_expr())
-            and
-            (o := self._tmp_12())
-            and
-            (r := self._minmax_expr())
-        ):
-            tok = self._last_nonblank_token()
-            end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
-        self._reset(mark)
-        if (
-            (sum_expr := self._sum_expr())
-        ):
-            return sum_expr
         self._reset(mark)
         return None
 
@@ -1435,7 +1347,7 @@ class Parser:
         if (
             (l := self._term_expr())
             and
-            (o := self._tmp_13())
+            (o := self._tmp_12())
             and
             (r := self._sum_expr())
         ):
@@ -1459,7 +1371,7 @@ class Parser:
         if (
             (l := self._atom_expr())
             and
-            (o := self._tmp_14())
+            (o := self._tmp_13())
             and
             (r := self._term_expr())
         ):
@@ -1524,7 +1436,7 @@ class Parser:
             return Identifier(token=a, context=Load(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (a := self._tmp_15())
+            (a := self._tmp_14())
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
@@ -1568,16 +1480,16 @@ class Parser:
         # argument_list: ','.pos_arg+ [',' ','.kw_arg+] ','? | ','.kw_arg+ ','?
         mark = self._mark()
         if (
-            (a := self._gather_16())
+            (a := self._gather_15())
             and
-            (b := self._tmp_18(),)
+            (b := self._tmp_17(),)
             and
             (self._accept(','),)
         ):
             return a + (b or [])
         self._reset(mark)
         if (
-            (a := self._gather_19())
+            (a := self._gather_18())
             and
             (self._accept(','),)
         ):
@@ -1702,7 +1614,7 @@ class Parser:
         if (
             (self._accept(','))
             and
-            (z := self._gather_21())
+            (z := self._gather_20())
         ):
             return z
         self._reset(mark)
@@ -1815,23 +1727,7 @@ class Parser:
 
     @memoize
     def _tmp_12(self) -> Any | None:
-        # tmp_12: minop | maxop
-        mark = self._mark()
-        if (
-            (minop := self._minop())
-        ):
-            return minop
-        self._reset(mark)
-        if (
-            (maxop := self._maxop())
-        ):
-            return maxop
-        self._reset(mark)
-        return None
-
-    @memoize
-    def _tmp_13(self) -> Any | None:
-        # tmp_13: addop | subop
+        # tmp_12: addop | subop
         mark = self._mark()
         if (
             (addop := self._addop())
@@ -1846,8 +1742,8 @@ class Parser:
         return None
 
     @memoize
-    def _tmp_14(self) -> Any | None:
-        # tmp_14: mulop | divop | modop | floordivop
+    def _tmp_13(self) -> Any | None:
+        # tmp_13: mulop | divop | modop | floordivop
         mark = self._mark()
         if (
             (mulop := self._mulop())
@@ -1872,8 +1768,8 @@ class Parser:
         return None
 
     @memoize
-    def _tmp_15(self) -> Any | None:
-        # tmp_15: INT | FLOAT
+    def _tmp_14(self) -> Any | None:
+        # tmp_14: INT | FLOAT
         mark = self._mark()
         if (
             (int := self._accept(TokenType.INT))
@@ -1888,8 +1784,8 @@ class Parser:
         return None
 
     @memoize
-    def _loop0_17(self) -> list[Any]:
-        # loop0_17: ',' pos_arg
+    def _loop0_16(self) -> list[Any]:
+        # loop0_16: ',' pos_arg
         mark = self._mark()
         children = []
         while (
@@ -1903,14 +1799,14 @@ class Parser:
         return children
 
     @memoize
-    def _gather_16(self) -> Any | None:
-        # gather_16: pos_arg loop0_17
+    def _gather_15(self) -> Any | None:
+        # gather_15: pos_arg loop0_16
         mark = self._mark()
         if (
             (elem := self._pos_arg())
             is not None
             and
-            (seq := self._loop0_17())
+            (seq := self._loop0_16())
             is not None
         ):
             return [elem] + seq
@@ -1918,21 +1814,21 @@ class Parser:
         return None
 
     @memoize
-    def _tmp_18(self) -> Any | None:
-        # tmp_18: ',' ','.kw_arg+
+    def _tmp_17(self) -> Any | None:
+        # tmp_17: ',' ','.kw_arg+
         mark = self._mark()
         if (
             (self._accept(','))
             and
-            (z := self._gather_23())
+            (z := self._gather_22())
         ):
             return z
         self._reset(mark)
         return None
 
     @memoize
-    def _loop0_20(self) -> list[Any]:
-        # loop0_20: ',' kw_arg
+    def _loop0_19(self) -> list[Any]:
+        # loop0_19: ',' kw_arg
         mark = self._mark()
         children = []
         while (
@@ -1946,14 +1842,14 @@ class Parser:
         return children
 
     @memoize
-    def _gather_19(self) -> Any | None:
-        # gather_19: kw_arg loop0_20
+    def _gather_18(self) -> Any | None:
+        # gather_18: kw_arg loop0_19
         mark = self._mark()
         if (
             (elem := self._kw_arg())
             is not None
             and
-            (seq := self._loop0_20())
+            (seq := self._loop0_19())
             is not None
         ):
             return [elem] + seq
@@ -1961,8 +1857,8 @@ class Parser:
         return None
 
     @memoize
-    def _loop0_22(self) -> list[Any]:
-        # loop0_22: ',' param_default
+    def _loop0_21(self) -> list[Any]:
+        # loop0_21: ',' param_default
         mark = self._mark()
         children = []
         while (
@@ -1976,14 +1872,14 @@ class Parser:
         return children
 
     @memoize
-    def _gather_21(self) -> Any | None:
-        # gather_21: param_default loop0_22
+    def _gather_20(self) -> Any | None:
+        # gather_20: param_default loop0_21
         mark = self._mark()
         if (
             (elem := self._param_default())
             is not None
             and
-            (seq := self._loop0_22())
+            (seq := self._loop0_21())
             is not None
         ):
             return [elem] + seq
@@ -1991,8 +1887,8 @@ class Parser:
         return None
 
     @memoize
-    def _loop0_24(self) -> list[Any]:
-        # loop0_24: ',' kw_arg
+    def _loop0_23(self) -> list[Any]:
+        # loop0_23: ',' kw_arg
         mark = self._mark()
         children = []
         while (
@@ -2006,14 +1902,14 @@ class Parser:
         return children
 
     @memoize
-    def _gather_23(self) -> Any | None:
-        # gather_23: kw_arg loop0_24
+    def _gather_22(self) -> Any | None:
+        # gather_22: kw_arg loop0_23
         mark = self._mark()
         if (
             (elem := self._kw_arg())
             is not None
             and
-            (seq := self._loop0_24())
+            (seq := self._loop0_23())
             is not None
         ):
             return [elem] + seq

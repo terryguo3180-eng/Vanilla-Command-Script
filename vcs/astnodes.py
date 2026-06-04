@@ -5,7 +5,7 @@ from typing import Any, TYPE_CHECKING
 from vcs.lexer import TokenInfo
 
 if TYPE_CHECKING:
-    from vcs.semantic import TypeInfo
+    from vcs.semantic import FunctionTypeInfo, TypeInfo, Scope
 
 
 class ASTNode:
@@ -121,11 +121,14 @@ class ASTNodeVisitor:
 
 
 class Module(ASTNode):
-    __slots__ = ("body",)
+    __slots__ = ("body", "scope")
 
     def __init__(self, body: list[FunctionDeclaration | Comment], **loc):
         super().__init__(**loc)
         self.body = body
+
+    def annotate_scope(self, scope: Scope):
+        self.scope = scope
 
 
 class Comment(ASTNode):
@@ -148,6 +151,9 @@ class FunctionDeclaration(ASTNode):
         "return_type",
         "colon_token",
         "body",
+        # Fields for semantic analyzer
+        "signature",
+        "scope",
     )
 
     def __init__(
@@ -171,6 +177,12 @@ class FunctionDeclaration(ASTNode):
         self.return_type = return_type
         self.colon_token = colon_token
         self.body = body
+
+    def annotate_signature(self, signature: FunctionTypeInfo):
+        self.signature = signature
+
+    def annotate_scope(self, scope: Scope):
+        self.scope = scope
 
 
 class Parameter(ASTNode):
@@ -199,7 +211,7 @@ class Statement(ASTNode): ...
 
 
 class Block(Statement):
-    __slots__ = ("body",)
+    __slots__ = ("body", "scope")
 
     def __init__(
         self,
@@ -208,6 +220,9 @@ class Block(Statement):
     ):
         super().__init__(**loc)
         self.body = body
+    
+    def annotate_scope(self, scope: Scope):
+        self.scope = scope
 
 
 class ExpressionStatement(Statement):
@@ -274,22 +289,6 @@ class AugAssignStatement(Statement):
         self.target = target
         self.op = op
         self.value = value
-
-
-class SwapStatement(Statement):
-    __slots__ = ("left", "swap_token", "right")
-
-    def __init__(
-        self,
-        left: LeftExpression,
-        swap_token: TokenInfo,
-        right: LeftExpression,
-        **loc
-    ):
-        super().__init__(**loc)
-        self.left = left
-        self.swap_token = swap_token
-        self.right = right
 
 
 class ReturnStatement(Statement):
@@ -387,6 +386,8 @@ class ForStatement(Statement):
         "rparen_token",
         "colon_token",
         "body",
+
+        "scope",
     )
 
     def __init__(
@@ -414,6 +415,9 @@ class ForStatement(Statement):
         self.rparen_token = rparen_token
         self.colon_token = colon_token
         self.body = body
+
+    def annotate_scope(self, scope: Scope):
+        self.scope = scope
 
 
 # Expressions
@@ -547,8 +551,6 @@ class MulOp(ArithmeticOp): ...
 class DivOp(ArithmeticOp): ...
 class FloorDivOp(ArithmeticOp): ...
 class ModOp(ArithmeticOp): ...
-class MinOp(ArithmeticOp): ...
-class MaxOp(ArithmeticOp): ...
 class CompareOp(BinaryOp): ...
 class EqOp(CompareOp): ...
 class NotEqOp(CompareOp): ...

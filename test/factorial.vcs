@@ -1,0 +1,9 @@
+main() -> Int:
+    result: Int = factorial(5)
+    return result
+
+factorial(n: Int) -> Int:
+    if n <= 1:
+        return 1
+    else:
+        return n * factorial(n - 1)
