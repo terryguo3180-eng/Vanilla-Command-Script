@@ -1,8 +1,15 @@
+from __future__ import annotations
+
 import os
 import re
 import sys
+from typing import TYPE_CHECKING
 
 from vcs import errors as err
+from vcs import lexer as lex
+
+if TYPE_CHECKING:
+    from vcs import astnodes as ast
 
 
 class SingletonMeta(type):
@@ -84,12 +91,7 @@ def print_compiler_error(e: err.CompilerError):
 
     tsize = _get_terminal_size()
     if tsize is None:
-        plain = ''.join((
-            "[", title, "]: ", fname, ":",
-            str(l1), ",", str(c1), "-", str(l2), ",", str(c2),
-            ": ", msg, " (", fmt_code, ")"
-        ))
-        print(plain, file=sys.stderr)
+        print(f"[{title}]: {fname}:{l1},{c1},{l2},{c2}: {msg} ({fmt_code})", file=sys.stderr)
         return
     
     HIGHLIGHT = AnsiCode.CURLY_U + (AnsiCode.YELLOW if e.warning else AnsiCode.RED)
@@ -122,9 +124,7 @@ def print_compiler_error(e: err.CompilerError):
         ))
 
         # Newline / endmarker
-        if c2 == 0 and (
-            len(affected) == 2 or all(line == "" for line in affected[1:-1])
-        ):
+        if c2 == 0 and (len(affected) == 2 or all(line == "" for line in affected[1:-1])):
             affected = [affected[0]]
         else:
             # Highlight last line
@@ -192,3 +192,76 @@ class GeOp(CompareOp):
 
 class LeOp(CompareOp):
     def __str__(self): return "<="
+
+
+def iter_fields(
+    self,
+    ignore_fields: list = ['filename', 'lineno', 'column', 'end_lineno', 'end_column'],
+):
+    for attr in self.__slots__:
+        if attr not in ignore_fields and hasattr(self, attr):
+            yield attr, getattr(self, attr)
+
+
+def dump_astnode(
+    node: ast.ASTNode,
+    annotate_fields: bool = True,
+    *,
+    indent: int | None = 2,
+    ignore_fields: list = ['filename', 'lineno', 'column', 'end_lineno', 'end_column', 'lexpos'],
+) -> str:
+    """
+    Human-readable dump of AST-like node structures
+    Produces a compact string representation of node objects, lists, and primitives
+    """
+    from vcs import astnodes as ast
+
+    def _format(node, level=0):
+        if indent is not None:
+            level += 1
+            prefix = "\n" + indent_prefix * level
+            sep = ",\n" + indent_prefix * level
+        else:
+            prefix = ""
+            sep = ", "
+
+        if isinstance(node, (ast.ASTNode, lex.TokenInfo)):
+            cls = type(node)
+            args = []
+            allsimple = True
+
+            for name, value in iter_fields(node):
+                if (
+                    name.startswith("__")
+                    and name.endswith("__")
+                    or name.startswith("_")
+                    or name in ignore_fields
+                ):
+                    continue
+
+                value_str, simple = _format(value, level)
+                allsimple = allsimple and simple
+
+                if annotate_fields:
+                    args.append(f"{name}={value_str}")
+                else:
+                    args.append(value_str)
+
+            if allsimple and len(args) <= 3:
+                return f"{cls.__name__}({', '.join(args)})", not args
+            return f"{cls.__name__}({prefix}{sep.join(args)})", False
+
+        if isinstance(node, list):
+            if not node:
+                return "[]", True
+            return f"[{prefix}{sep.join(_format(x, level)[0] for x in node)}]", False
+
+        if isinstance(node, lex.TokenType):
+            return f"TokenType.{node.name}", True
+
+        return repr(node), True
+
+    if indent is not None and not isinstance(indent, str):
+        indent_prefix = " " * indent
+
+    return _format(node)[0]

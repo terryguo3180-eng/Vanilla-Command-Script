@@ -20,7 +20,7 @@ if platform.system() != "Windows":
     import signal
 
 from vcs import utils
-from vcs import repl
+from vcs.cli import REPL
 
 
 RCON_HOST = "127.0.0.1"
@@ -135,13 +135,10 @@ def get_latest_paper_jar():
         buildno = latest["build"]
         filename = latest["downloads"]["application"]["name"]
         
-        download_url = (
-            f"https://api.papermc.io/v2/projects/paper/versions/"
-            f"{latest_ver}/builds/{buildno}/downloads/{filename}"
-        )
+        download_url = f"https://api.papermc.io/v2/projects/paper/versions/{latest_ver}/builds/{buildno}/downloads/{filename}"
         utils.print_info(f"Download URL: {download_url}")
         
-        utils.print_info("Downloading Paper... (this may take a moment)")
+        utils.print_info("Downloading Paper...")
         urllib.request.urlretrieve(download_url, "server.jar")
         utils.print_success("Paper download complete")
         
@@ -166,11 +163,9 @@ def wait_for_rcon(host, port, timeout=45):
             sock.settimeout(1)
             sock.connect((host, port))
             sock.close()
-            print()  # newline after dots
             return True
         except:
             time.sleep(1)
-    print()  # final newline
     return False
 
 
@@ -316,7 +311,7 @@ def main():
         logfile = ServerLogFile("server.log")
 
         if not wait_for_rcon(RCON_HOST, RCON_PORT, timeout=45):
-            utils.print_error("\nServer startup timeout")
+            utils.print_error("Server startup timeout")
             utils.print_warning("Last 10 lines of server.log:")
             lines = logfile.get_text().splitlines()
             for line in lines[-10:]:
@@ -329,11 +324,11 @@ def main():
 
         def cli(prompt: str, line: str):
             if not line.startswith("/"):
-                print(f"  {utils.AnsiCode.DIM}{line}{utils.AnsiCode.RESET}")
+                print(f"{utils.AnsiCode.DIM}{line}{utils.AnsiCode.RESET}")
                 return
 
             if line == "/stop":
-                utils.print_warning("  Type Ctrl+C to exit the program")
+                utils.print_warning("Type Ctrl+C to exit the program")
                 return
 
             if line == "/reload":
@@ -342,26 +337,23 @@ def main():
             resp = send_cmd(line)
             if resp:
                 colored_resp = mc_to_ansi(resp.rstrip())
-                if colored_resp.strip():
-                    for resp_line in colored_resp.splitlines():
-                        print(f"  {resp_line}")
+                print(colored_resp)
             else:
-                print(f"  {utils.AnsiCode.DIM}Command executed with no output{utils.AnsiCode.RESET}")
+                print(f"{utils.AnsiCode.DIM}Command executed with no output{utils.AnsiCode.RESET}")
 
             if line == "/reload":
                 errors = logfile.find_reload_errors()
                 if errors:
-                    utils.print_warning("  Error detected in Minecraft log file:")
+                    utils.print_warning("Error detected in Minecraft log file:")
                     for error in errors:
-                        print(f"    {utils.AnsiCode.BGRED}{error}{utils.AnsiCode.RESET}")
+                        print(f"  {utils.AnsiCode.BGRED}{error}{utils.AnsiCode.RESET}")
 
         print()
         intro = utils.color_text(
-            "Minecraft REPL (Read-Eval-Print Loop) module "
-            "for datapack testing, type Ctrl+C to exit the program",
+            "Minecraft REPL (Read-Eval-Print Loop) module for datapack testing, type Ctrl+C to exit the program",
             utils.AnsiCode.MAGENTA, bold=True
         )
-        repl.REPL(cli, False).cmdloop(intro)
+        REPL(cli, False).cmdloop(intro)
         
     except KeyboardInterrupt:
         utils.print_warning("\nInterrupted")

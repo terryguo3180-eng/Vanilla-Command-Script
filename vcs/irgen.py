@@ -14,12 +14,12 @@ class IRGenerator(ast.ASTNodeVisitor):
     def __init__(
         self,
         namespace: str,
-        symtab: sem.SymbolTable,
-        call_param_bindings: dict[ast.CallExpression, dict[str, ast.Expression]],
+        typechecker: sem.SemanticAnalyzer
     ):
         self.namespace = namespace
-        self.symtab = symtab
-        self.call_param_bindings = call_param_bindings
+        self.typechecker = typechecker
+        self.symtab = typechecker.symtab
+        self.call_param_bindings = typechecker.call_param_bindings
 
         self.module = ir.Module(namespace)
         self.builder = ir.IRBuilder()
@@ -30,6 +30,13 @@ class IRGenerator(ast.ASTNodeVisitor):
         self._func_map: dict[str, ir.Function] = {}
         self._loop_stack: list[tuple[ir.BasicBlock, ir.BasicBlock]] = []
         self._block_id = 0
+
+    def generate(self) -> ir.Module | None:
+        tree = self.typechecker.analyze()
+        if tree is None:
+            return None
+        self.visit(tree)
+        return self.module
 
     @overload
     def visit(self, node: ast.Module) -> None: ...
@@ -420,48 +427,6 @@ class IRGenerator(ast.ASTNodeVisitor):
         raise NotImplementedError(f"IR codegen for {type(node).__name__} not implemented")
 
 
-def main():
-    import argparse
-
-    from vcs import errors as err
-    from vcs.lexer import Lexer
-    from vcs.parser import Parser
-    from vcs.semantic import SemanticAnalyzer
-
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument(dest="filename", metavar="filename.vcs")
-    argparser.add_argument("-s", "--skip-comments", action="store_true")
-    argparser.add_argument("-t", "--tabsize", metavar="TABSIZE", default=4)
-    argparser.add_argument("-n", "--namespace", metavar="NAMESPACE", required=True)
-    args = argparser.parse_args()
-
-    filename = args.filename
-    namespace = args.namespace
-
-    with open(filename, encoding="utf8") as f:
-        source = f.read()
-
-    errors = err.ErrorCollector()
-    lexer = Lexer(source, filename, errors, args.tabsize)
-    parser = Parser(lexer, errors, args.skip_comments)
-    tree: ast.Module = parser.parse()
-
-    typechecker = SemanticAnalyzer(errors, parser.get_error_info_on)
-    typechecker.visit(tree)
-    if not errors.ok():
-        for issue in errors.issues:
-            utils.print_compiler_error(issue)
-        return
-    
-    irgen = IRGenerator(
-        namespace,
-        typechecker.symtab,
-        typechecker.call_param_bindings,
-    )
-    irgen.visit(tree)
-
-    print(irgen.module)
-
-
 if __name__ == "__main__":
-    main()
+    from vcs.cli import cli
+    cli()

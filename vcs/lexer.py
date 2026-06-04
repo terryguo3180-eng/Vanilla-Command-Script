@@ -46,44 +46,31 @@ class LexerConfig:
     re_InvalidLineCont = r"\\.+"
 
 
+@dataclass(slots=True)
 class TokenInfo:
     """
     Token container with position metadata
     """
-    __slots__ = ("type", "value", "filename", "lineno", "column", "lexpos", "end_lineno", "end_column")
+    type: TokenType
+    value: str
+    filename: str
+    lineno: int
+    column: int
+    lexpos: int
+    end_lineno: int = 0
+    end_column: int = 0
 
-    def __init__(
-        self, type: TokenType, value: str, filename: str, lineno: int, column: int, lexpos: int
-    ):
-        self.type = type
-        self.value = value
-        self.filename = filename
-        self.lineno = lineno
-        self.column = column
-        self.lexpos = lexpos
-        self.end_lineno, self.end_column = self.get_endpos()
-
-    def __repr__(self):
-        return f"TokenInfo(type=TokenType.{self.type.name}, value={self.value!r}, lineno={self.lineno}, column={self.column}, lexpos={self.lexpos})"
-
-    def __eq__(self, other):
-        if not isinstance(other, TokenInfo):
-            return False
-        return (
-            self.type == other.type
-            and self.value == other.value
-            and self.lineno == other.lineno
-            and self.column == other.column
-        )
+    def __post_init__(self):
+        self.end_lineno, self.end_column = self._get_endpos()
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def get_debug_line(self):
+    def __str__(self):
         token_range = f"{self.lineno},{self.column}-{self.end_lineno},{self.end_column}({self.lexpos})"
         return f"{token_range:<25}{self.type.name:<25}{self.value!r}"
 
-    def get_endpos(self) -> tuple[int, int]:
+    def _get_endpos(self) -> tuple[int, int]:
         if "\n" not in self.value:
             return self.lineno, self.column + len(self.value)
 
@@ -660,48 +647,6 @@ class Lexer:
         yield self._maketoken(TokenType.ERRORTOKEN, error_char)
 
 
-def main():
-    import argparse
-    
-    from vcs import utils
-
-    # Parse the arguments and options
-    argparser = argparse.ArgumentParser(prog="python -m vcs.lexer")
-    argparser.add_argument(dest="filename", nargs="?", metavar="filename.vcs")
-    argparser.add_argument(
-        "-t",
-        "--tabsize",
-        metavar="TABSIZE",
-        default=4,
-        help="How many spaces per tab character",
-    )
-    args = argparser.parse_args()
-
-    filename = args.filename
-    tabsize = args.tabsize
-
-    def cli(filename: str, source: str):
-        errors = err.ErrorCollector()
-        lexer = Lexer(source, filename, errors, tabsize)
-
-        # Output the tokenization
-        for token in lexer:
-            print(token.get_debug_line())
-        
-        # Print errors/warnings if any
-        if not errors.ok():
-            errors.sort()
-            for issue in errors.issues:
-                utils.print_compiler_error(issue)
-                
-    if not filename:
-        from .repl import REPL
-        REPL(cli).cmdloop("vcs.lexer REPL (Read-Eval-Print Loop) module, type Ctrl+C to exit the program")
-        exit(0)
-
-    with open(filename, encoding="utf8") as f:
-        cli(filename, f.read())
-
-
 if __name__ == "__main__":
-    main()
+    from vcs.cli import cli
+    cli()

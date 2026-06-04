@@ -73,7 +73,7 @@ def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
         args_repr = ",".join(repr(arg) for arg in args)
         peek_repr = repr(self._showpeek())
 
-        print(f"{{fill}}{{method_name}}({{args_repr}}) .... (looking at {{peek_repr}})\\n")
+        print(f"{{fill}}{{method_name}}({{args_repr}}) .... (looking at {{peek_repr}})")
 
         self._level = level + 1
         try:
@@ -82,7 +82,7 @@ def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
             self._level = level
 
         tree_repr = repr(tree)[:80]
-        print(f"{{fill}}... {{method_name}}({{args_repr}}) --> {{tree_repr}}\\n")
+        print(f"{{fill}}... {{method_name}}({{args_repr}}) --> {{tree_repr}}")
         return tree
 
     return cast(F, logger_wrapper)
@@ -117,7 +117,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
                 fill = _get_indent(self._level)
                 args_repr = ",".join(repr(arg) for arg in args)
                 tree_repr = repr(tree)[:80]
-                print(f"{{fill}}{{method_name}}({{args_repr}}) -> {{tree_repr}}\\n")
+                print(f"{{fill}}{{method_name}}({{args_repr}}) -> {{tree_repr}}")
                 return tree
 
         # slow path
@@ -127,7 +127,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
             fill = _get_indent(level)
             args_repr = ",".join(repr(arg) for arg in args)
             peek_repr = repr(self._showpeek())
-            print(f"{{fill}}{{method_name}}({{args_repr}}) ... (looking at {{peek_repr}})\\n")
+            print(f"{{fill}}{{method_name}}({{args_repr}}) ... (looking at {{peek_repr}})")
 
         self._level = level + 1
         try:
@@ -140,7 +140,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
 
         if self.verbose:
             tree_repr = repr(tree)[:80]
-            print(f"{{fill}}... {{method_name}}({{args_repr}}) -> {{tree_repr}}\\n")  # type: ignore
+            print(f"{{fill}}... {{method_name}}({{args_repr}}) -> {{tree_repr}}")  # type: ignore
 
         return tree
 
@@ -178,7 +178,7 @@ def memoize_left_rec[P: {class_name}, T](
                     self._reset(endmark)
                 fill = _get_indent(self._level)
                 tree_repr = repr(tree)[:80] if tree else "None"
-                print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [fresh]\\n")
+                print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [fresh]")
                 return tree
 
         # For left-recursive rules we manipulate the cache and
@@ -194,8 +194,8 @@ def memoize_left_rec[P: {class_name}, T](
 
         if self.verbose:
             peek_repr = repr(self._showpeek())
-            print(f"{{fill}}{{method_name}} ... (looking at {{peek_repr}})\\n")
-            print(f"{{fill}}Recursive {{method_name}} at {{mark}} depth 0\\n")
+            print(f"{{fill}}{{method_name}} ... (looking at {{peek_repr}})")
+            print(f"{{fill}}Recursive {{method_name}} at {{mark}} depth 0")
 
         cache[key] = (None, mark)
         lastresult: T | None = None
@@ -218,20 +218,19 @@ def memoize_left_rec[P: {class_name}, T](
                 if self.verbose:
                     result_repr = repr(result)[:80] if result else "None"
                     print(
-                        f"{{fill}}Recursive {{method_name}} at {{mark}} depth {{depth}}: "
-                        f"{{result_repr}} to {{endmark}}\\n"
+                        f"{{fill}}Recursive {{method_name}} at {{mark}} depth {{depth}}: {{result_repr}} to {{endmark}}"
                     )
 
                 if not result:
                     if self.verbose:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
-                        print(f"{{fill}}Fail with {{last_repr}} to {{lastmark}}\\n")
+                        print(f"{{fill}}Fail with {{last_repr}} to {{lastmark}}")
                     break
 
                 if endmark <= lastmark:
                     if self.verbose:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
-                        print(f"{{fill}}Bailing with {{last_repr}} to {{lastmark}}\\n")
+                        print(f"{{fill}}Bailing with {{last_repr}} to {{lastmark}}")
                     break
 
                 cache[key] = (result, endmark)
@@ -244,7 +243,7 @@ def memoize_left_rec[P: {class_name}, T](
 
         if self.verbose:
             tree_repr = repr(tree)[:80] if tree else "None"
-            print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [cached]\\n")
+            print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [cached]")
 
         if tree is not None:
             endmark = self._mark()
@@ -438,12 +437,7 @@ class {class_name}:
         Report an error where the start and end locations are known
         \"""
         start_lineno, start_column = start_node.lineno, start_node.column
-
-        if isinstance(end_node, lex.TokenInfo):
-            end_lineno, end_column = end_node.get_endpos()
-        else:
-            end_lineno, end_column = end_node.end_lineno, end_node.end_column
-
+        end_lineno, end_column = end_node.end_lineno, end_node.end_column
         return err.ErrorInfo(start_node.filename, start_lineno, start_column, self._source, end_lineno, end_column)
 
     def get_error_info_starting_from(self, node: ast.ASTNode | lex.TokenInfo) -> err.ErrorInfo:
@@ -459,87 +453,10 @@ class {class_name}:
 
 MODULE_SUFFIX = """
 
-def main():
-    import argparse
-    import time
-
-    from vcs import utils
-    
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument(dest="filename", nargs="?", metavar="filename.vcs")
-    argparser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print timing stats; repeat for more debug output",
-    )
-    argparser.add_argument(
-        "-s",
-        "--skip-comments",
-        action="store_true",
-        help="Skip all the comment tokens",
-    )
-    argparser.add_argument(
-        "-t",
-        "--tabsize",
-        metavar="TABSIZE",
-        default=4,
-        help="How many spaces per tab character",
-    )
-    args = argparser.parse_args()
-
-    filename = args.filename
-    skip_comments = args.skip_comments
-    verbose = args.verbose
-
-    def cli(filename: str, source: str):
-        t0 = time.time()
-
-        errors = err.ErrorCollector()
-        lexer = lex.Lexer(source, filename, errors, args.tabsize)
-        parser = Parser(lexer, errors, skip_comments, verbose)
-        tree = parser.parse()
-    
-        t1 = time.time()
-
-        if tree is None:
-            last_tok = parser.diagnose()
-            parser.report(err.ParseError(parser.get_error_info_on(last_tok)))
-
-        if not errors.ok():
-            for issue in errors.issues:
-                utils.print_compiler_error(issue)
-            return
-        
-        if tree is None:
-            return
-
-        print(tree)
-        
-        if verbose:
-            dt = t1 - t0
-            last_tok = parser.diagnose()
-            nlines = last_tok.get_endpos()[0]
-            print(f"Total time: {{dt:.3f}} sec; {{nlines}} lines", end="")
-            if dt:
-                print(f"; {{nlines / dt:.0f}} lines/sec")
-            else:
-                print()
-            print("Caches sizes:")
-            print(f"  token array : {{len(parser._tokenstream._tokens):10}}")
-            print(f"        cache : {{len(parser._cache):10}}")
-    
-    if not filename:
-        from .repl import REPL
-        REPL(cli).cmdloop("vcs.parser REPL (Read-Eval-Print Loop) module, type Ctrl+C to exit the program")
-        exit(0)
-
-    with open(filename, encoding="utf8") as f:
-        cli(filename, f.read())
-
-
 if __name__ == "__main__":
-    main()
+    from vcs.cli import cli
+    cli()
+
 """
 
 

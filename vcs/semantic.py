@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Callable, overload, cast
+from typing import overload, cast
 
 from vcs import astnodes as ast
 from vcs import errors as err
 from vcs import lexer as lex
+from vcs import parser as psr
 from vcs import utils
 
 
@@ -216,12 +217,10 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
     Verifies type correctness, symbol resolution, and semantic rules.
     """
     
-    def __init__(
-        self, errors: err.ErrorCollector,
-        get_error_info_on: Callable[[ast.ASTNode | lex.TokenInfo | None], err.ErrorInfo],
-    ):
+    def __init__(self, parser: psr.Parser, errors: err.ErrorCollector):
+        self.parser = parser
         self.errors = errors
-        self.get_error_info_on = get_error_info_on  # Factory for error location info
+        self.get_error_info_on = parser.get_error_info_on  # Factory for error location info
 
         self.symtab = SymbolTable()  # Symbol table for scope management
 
@@ -234,6 +233,14 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
     def report(self, error: err.CompilerError):
         """Report a compilation error to the error collector"""
         self.errors.add(error)
+
+    def analyze(self) -> ast.Module | None:
+        """Start the semantic analysis"""
+        tree = self.parser.parse()
+        self.visit(tree)
+        if not self.errors.ok():
+            return None
+        return tree
 
     @overload
     def visit(self, node: ast.Module) -> None: ...
@@ -739,51 +746,6 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
         return BoolTypeInfo()
 
 
-def main():
-    import argparse
-    
-    from vcs.lexer import Lexer
-    from vcs.parser import Parser
-    
-    # Parse command line arguments
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument(dest="filename", metavar="filename.vcs")
-    argparser.add_argument(
-        "-s",
-        "--skip-comments",
-        action="store_true",
-        help="Skip all the comment tokens",
-    )
-    argparser.add_argument(
-        "-t",
-        "--tabsize",
-        metavar="TABSIZE",
-        default=4,
-        help="How many spaces per tab character",
-    )
-    args = argparser.parse_args()
-
-    filename = args.filename
-    skip_comments = args.skip_comments
-
-    # Read source file
-    with open(filename, encoding="utf8") as f:
-        source = f.read()
-
-    # Lex, parse, and perform semantic analysis
-    errors = err.ErrorCollector()
-    lexer = Lexer(source, filename, errors, args.tabsize)
-    parser = Parser(lexer, errors, skip_comments)
-    tree: ast.Module = parser.parse()
-    typechecker = SemanticAnalyzer(errors, parser.get_error_info_on)
-    typechecker.visit(tree)
-
-    # Report any errors found during analysis
-    if not errors.ok():
-        errors.sort()
-        for issue in errors.issues:
-            utils.print_compiler_error(issue)
-        return
-
 if __name__ == "__main__":
-    main()
+    from vcs.cli import cli
+    cli()

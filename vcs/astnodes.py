@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 from vcs import lexer as lex
+from vcs import utils
 
 if TYPE_CHECKING:
     from vcs import semantic as sem
@@ -26,82 +27,10 @@ class ASTNode:
         self.end_column = end_column
 
     def __repr__(self) -> str:
-        return dump_astnode(self)
-
-    def iter_fields(
-        self,
-        ignore_fields: list = ['filename', 'lineno', 'column', 'end_lineno', 'end_column'],
-    ):
-        for attr in self.__slots__:
-            if attr not in ignore_fields:
-                yield attr, getattr(self, attr)
-
-    def raise_error(self, error_type: type[Exception], msg: str):
-        if error_type is SyntaxError:
-            with open(self.filename) as f:
-                for _ in range(self.lineno):
-                    line = f.readline()
-            raise error_type(msg, (self.filename, self.lineno, self.column, line))  # type: ignore
-        raise error_type(f"{msg} (file {self.filename}, line {self.lineno}, column {self.column})")
-
-
-def dump_astnode(
-    node: ASTNode,
-    annotate_fields: bool = True,
-    *,
-    indent: int | None = 2,
-    ignore_fields: list = ['filename', 'lineno', 'column', 'end_lineno', 'end_column'],
-) -> str:
-    """
-    Human-readable dump of AST-like node structures
-    Produces a compact string representation of node objects, lists, and primitives
-    """
-    def _format(node, level=0):
-        if indent is not None:
-            level += 1
-            prefix = "\n" + indent_prefix * level
-            sep = ",\n" + indent_prefix * level
-        else:
-            prefix = ""
-            sep = ", "
-
-        if isinstance(node, ASTNode):
-            cls = type(node)
-            args = []
-            allsimple = True
-
-            for name, value in node.iter_fields():
-                if (
-                    name.startswith("__")
-                    and name.endswith("__")
-                    or name.startswith("_")
-                    or name in ignore_fields
-                ):
-                    continue
-
-                value_str, simple = _format(value, level)
-                allsimple = allsimple and simple
-
-                if annotate_fields:
-                    args.append(f"{name}={value_str}")
-                else:
-                    args.append(value_str)
-
-            if allsimple and len(args) <= 3:
-                return f"{cls.__name__}({', '.join(args)})", not args
-            return f"{cls.__name__}({prefix}{sep.join(args)})", False
-
-        elif isinstance(node, list):
-            if not node:
-                return "[]", True
-            return f"[{prefix}{sep.join(_format(x, level)[0] for x in node)}]", False
-
-        return repr(node), True
-
-    if indent is not None and not isinstance(indent, str):
-        indent_prefix = " " * indent
-
-    return _format(node)[0]
+        return utils.dump_astnode(self, indent=None)
+    
+    def __str__(self) -> str:
+        return utils.dump_astnode(self)
 
 
 class ASTNodeVisitor:
@@ -111,7 +40,7 @@ class ASTNodeVisitor:
         return visitor(node, *args, **kwargs)
 
     def generic_visit(self, node: ASTNode, *args, **kwargs) -> Any:
-        for _, value in node.iter_fields():
+        for _, value in utils.iter_fields(node):
             if isinstance(value, list):
                 for item in value:
                     if isinstance(item, ASTNode):
