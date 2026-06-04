@@ -13,7 +13,7 @@ from typing import IO, Any, Callable, Iterable, Iterator, NoReturn, cast
 from functools import wraps
 from typing import Any, Callable, cast
 
-from vcs.lexer import TokenType
+from vcs import lexer as lex
 
 type Plain = Leaf | Group
 type Item = Plain | Opt | Repeat | Forced | Lookahead | Rhs | Cut
@@ -32,11 +32,12 @@ MODULE_PREFIX = """\
 # To regenerate this, `cd` to the top directory of this project and run:
 # `$python -m vcs.pegen {filename} -o {output}`
 
-from typing import Any, Callable, ClassVar, cast
 from functools import wraps
+from typing import Any, Callable, ClassVar, cast
 
-from vcs.errors import *
-from vcs.lexer import Lexer, TokenInfo, TokenType
+from vcs import astnodes as ast
+from vcs import errors as err
+from vcs import lexer as lex
 
 {subheader}
 
@@ -264,7 +265,7 @@ class TokenStream:
     Keeps tokens in a buffer so callers can peek, getnext, mark/reset etc
     \"""
 
-    def __init__(self, lexer: Lexer):
+    def __init__(self, lexer: lex.Lexer):
         self.filename = lexer.filename
         self.source = lexer.source
         self.source_lines = lexer.source_lines
@@ -272,44 +273,44 @@ class TokenStream:
 
         self._lexer = lexer
         self._tokgen = iter(lexer)
-        self._tokens: list[TokenInfo] = []
+        self._tokens: list[lex.TokenInfo] = []
         self._index: int = 0
 
-    def get_error_info_on(self, token: TokenInfo | None):
+    def get_error_info_on(self, token: lex.TokenInfo | None):
         if token is None:
             token = self._tokens[self._index - 1]
         return self._lexer.get_error_info(len(token.value), token.lexpos)
 
-    def get_error_info_range(self, start_tok: TokenInfo, end_tok: TokenInfo):
+    def get_error_info_range(self, start_tok: lex.TokenInfo, end_tok: lex.TokenInfo):
         return self._lexer.get_error_info(
             end_tok.lexpos + len(end_tok.value) - start_tok.lexpos,
             start_tok.lexpos,
         )
 
-    def getnext(self) -> TokenInfo:
+    def getnext(self) -> lex.TokenInfo:
         tok = self.peek()
         self._index += 1
         return tok
 
-    def peek(self) -> TokenInfo:
+    def peek(self) -> lex.TokenInfo:
         while self._index == len(self._tokens):
             tok = next(self._tokgen)
             self._tokens.append(tok)
         return self._tokens[self._index]
 
-    def diagnose(self) -> TokenInfo:
+    def diagnose(self) -> lex.TokenInfo:
         if not self._tokens:
             self.getnext()
         return self._tokens[-1]
 
-    def last_nonblank_token(self) -> TokenInfo:
+    def last_nonblank_token(self) -> lex.TokenInfo:
         for tok in reversed(self._tokens[:self._index]):
             if tok.type not in [
-                TokenType.ENDMARKER,
-                TokenType.NEWLINE,
-                TokenType.INDENT,
-                TokenType.DEDENT,
-                TokenType.ERRORTOKEN,
+                lex.TokenType.ENDMARKER,
+                lex.TokenType.NEWLINE,
+                lex.TokenType.INDENT,
+                lex.TokenType.DEDENT,
+                lex.TokenType.ERRORTOKEN,
             ]:
                 break
         return tok  # type: ignore
@@ -332,7 +333,7 @@ class {class_name}:
     KEYWORDS: ClassVar[tuple[str, ...]]
     SOFT_KEYWORDS: ClassVar[tuple[str, ...]]
 
-    def __init__(self, lexer: Lexer, errors: ErrorCollector, skip_comments=False, verbose=False):
+    def __init__(self, lexer: lex.Lexer, errors: err.ErrorCollector, skip_comments=False, verbose=False):
         tokenstream = TokenStream(lexer)
         self._tokenstream = tokenstream
 
@@ -363,8 +364,8 @@ class {class_name}:
         }}"
 
     @memoize
-    def _accept(self, token_type: TokenType | str) -> TokenInfo | None:
-        # Accept a token of the given type or value; returns the TokenInfo or None
+    def _accept(self, token_type: lex.TokenType | str) -> lex.TokenInfo | None:
+        # Accept a token of the given type or value; returns the lex.TokenInfo or None
         while True:
             mark = self._mark()
             try:
@@ -372,19 +373,19 @@ class {class_name}:
             except StopIteration:
                 return None
 
-            if not (self.skip_comments and tok.type == TokenType.COMMENT):
+            if not (self.skip_comments and tok.type == lex.TokenType.COMMENT):
                 break
             
         if tok.type == token_type:
-            if token_type == TokenType.NAME and tok.value in self.KEYWORDS:
+            if token_type == lex.TokenType.NAME and tok.value in self.KEYWORDS:
                 return None
             return tok    
-        if tok.type == TokenType.NAME and tok.value == token_type:
+        if tok.type == lex.TokenType.NAME and tok.value == token_type:
             return tok
-        if tok.type == TokenType.OP and tok.value == token_type:
+        if tok.type == lex.TokenType.OP and tok.value == token_type:
             return tok
         if (
-            tok.type == TokenType.NAME
+            tok.type == lex.TokenType.NAME
             and token_type == "SOFT_KEYWORD"
             and tok.value in self.SOFT_KEYWORDS
         ):
@@ -392,11 +393,11 @@ class {class_name}:
         
         self._reset(mark)
 
-    def _expect(self, res: Any, expectation: TokenType | str) -> TokenInfo | None:
+    def _expect(self, res: Any, expectation: lex.TokenType | str) -> lex.TokenInfo | None:
         # Ensure that a previous _accept returned a result, otherwise report an error
         if res is None:
-            string = expectation.name.lower() if isinstance(expectation, TokenType) else expectation
-            self.report(ExpectationFailed(self.get_error_info_on(), string))
+            string = expectation.name.lower() if isinstance(expectation, lex.TokenType) else expectation
+            self.report(err.ExpectationFailed(self.get_error_info_on(), string))
         return res
 
     def _positive_lookahead[T](self, func: Callable[..., T], *args: object) -> T:
@@ -413,14 +414,14 @@ class {class_name}:
         self._reset(mark)
         return not ok
 
-    def report(self, error: CompilerError):
+    def report(self, error: err.CompilerError):
         self.errors.add(error)
 
-    def get_error_info_on(self, node: ASTNode | TokenInfo | None = None) -> ErrorInfo:
-        if isinstance(node, TokenInfo) or node is None:
+    def get_error_info_on(self, node: ast.ASTNode | lex.TokenInfo | None = None) -> err.ErrorInfo:
+        if isinstance(node, lex.TokenInfo) or node is None:
             return self._tokenstream.get_error_info_on(node)
         
-        return ErrorInfo(
+        return err.ErrorInfo(
             node.filename,
             node.lineno,
             node.column,
@@ -431,25 +432,25 @@ class {class_name}:
 
     def get_error_info_between(
         self,
-        start_node: ASTNode | TokenInfo,
-        end_node: ASTNode | TokenInfo,
-    ) -> ErrorInfo:
+        start_node: ast.ASTNode | lex.TokenInfo,
+        end_node: ast.ASTNode | lex.TokenInfo,
+    ) -> err.ErrorInfo:
         \"""
         Report an error where the start and end locations are known
         \"""
         start_lineno, start_column = start_node.lineno, start_node.column
 
-        if isinstance(end_node, TokenInfo):
+        if isinstance(end_node, lex.TokenInfo):
             end_lineno, end_column = end_node.get_endpos()
         else:
             end_lineno, end_column = end_node.end_lineno, end_node.end_column
 
-        return ErrorInfo(start_node.filename, start_lineno, start_column, self._source, end_lineno, end_column)
+        return err.ErrorInfo(start_node.filename, start_lineno, start_column, self._source, end_lineno, end_column)
 
-    def get_error_info_starting_from(self, node: ASTNode | TokenInfo) -> ErrorInfo:
+    def get_error_info_starting_from(self, node: ast.ASTNode | lex.TokenInfo) -> err.ErrorInfo:
         return self.get_error_info_between(node, self._tokenstream.diagnose())
 
-    def get_error_info_next_token(self) -> ErrorInfo:
+    def get_error_info_next_token(self) -> err.ErrorInfo:
         return self.get_error_info_on(self._peek())
     
     def parse(self):
@@ -462,7 +463,8 @@ MODULE_SUFFIX = """
 def main():
     import argparse
     import time
-    import sys
+
+    from vcs import utils
     
     argparser = argparse.ArgumentParser()
     argparser.add_argument(dest="filename", nargs="?", metavar="filename.vcs")
@@ -494,8 +496,8 @@ def main():
     def cli(filename: str, source: str):
         t0 = time.time()
 
-        errors = ErrorCollector()
-        lexer = Lexer(source, filename, errors, args.tabsize)
+        errors = err.ErrorCollector()
+        lexer = lex.Lexer(source, filename, errors, args.tabsize)
         parser = Parser(lexer, errors, skip_comments, verbose)
         tree = parser.parse()
     
@@ -503,11 +505,11 @@ def main():
 
         if tree is None:
             last_tok = parser.diagnose()
-            parser.report(ParseError(parser.get_error_info_on(last_tok)))
+            parser.report(err.ParseError(parser.get_error_info_on(last_tok)))
 
         if not errors.ok():
             for issue in errors.issues:
-                print(dump_error(issue), file=sys.stderr)
+                utils.print_compiler_error(issue)
             return
         
         if tree is None:
@@ -535,7 +537,6 @@ def main():
 
     with open(filename, encoding="utf8") as f:
         cli(filename, f.read())
-
 
 
 if __name__ == "__main__":
@@ -701,8 +702,8 @@ class NameLeaf(Leaf):
         return super().__str__()
 
     def python_expr(self):
-        if self.value in (toktype.name for toktype in TokenType):
-            return f"TokenType.{self.value}"
+        if self.value in (toktype.name for toktype in lex.TokenType):
+            return f"lex.TokenType.{self.value}"
         return super().python_expr()
 
     def __repr__(self) -> str:
@@ -1025,7 +1026,7 @@ class RuleCheckingVisitor(GrammarVisitor):
     def visit_NameLeaf(self, node: NameLeaf) -> None:
         if (
             node.value not in self.rules
-            and not hasattr(TokenType, node.value)
+            and not hasattr(lex.TokenType, node.value)
             and node.value != "ANY"
         ):
             # TODO: Add line/col info to (leaf) nodes
@@ -2157,7 +2158,7 @@ class PythonCallMakerVisitor(GrammarVisitor):
             return "soft_keyword", 'self._accept("SOFT_KEYWORD")'
         if name == "ANY":
             return None, "self._getnext()"
-        if hasattr(TokenType, name):
+        if hasattr(lex.TokenType, name):
             return name.lower(), f"self._accept({node.python_expr()})"
         return name, f"self._{name}()"
 

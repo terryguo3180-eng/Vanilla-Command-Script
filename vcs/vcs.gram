@@ -1,196 +1,193 @@
-@subheader'''\
-from vcs.astnodes import *
-'''
 @class Parser
-@fallback '[Module(body=[]), self.report(ParseError(self.get_error_info_on(self.diagnose())))][0]'
+@fallback '[ast.Module(body=[]), self.report(err.ParseError(self.get_error_info_on(self.diagnose())))][0]'
 
-start[Module]: m=module ENDMARKER {m}
-module[Module]: f=toplevel+ { Module(body=f, LOCATIONS) }
+start[ast.Module]: m=module ENDMARKER {m}
+module[ast.Module]: f=toplevel+ { ast.Module(body=f, LOCATIONS) }
 
-toplevel[FunctionDeclaration | Comment]:
+toplevel[ast.FunctionDeclaration | ast.Comment]:
     | func_decl
     | comment
 
-func_decl[FunctionDeclaration]:
+func_decl[ast.FunctionDeclaration]:
     | n=NAME lp='(' p=params? rp=')' arr='->' t=type cln=':' b=block {
-        FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=arr, return_type=t, colon_token=cln, body=b, LOCATIONS)
+        ast.FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=arr, return_type=t, colon_token=cln, body=b, LOCATIONS)
     }
     | n=NAME lp='(' p=params? rp=')' cln=':' b=block {
-        FunctionDeclaration( name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=None, return_type=None, colon_token=cln, body=b, LOCATIONS)
+        ast.FunctionDeclaration( name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=None, return_type=None, colon_token=cln, body=b, LOCATIONS)
     }
 
-params[list[Parameter]]:
+params[list[ast.Parameter]]:
     | a=','.param_no_default+ b=[',' z=','.param_default+ {z}] ','? {a + (b or [])}
     | a=','.param_default+ ','? {a}
 
-param_no_default[Parameter]:
+param_no_default[ast.Parameter]:
     | n=NAME cln=':' t=type !'=' {
-        Parameter(name_token=n, colon_token=cln, type=t, equal_token=None, default=None, LOCATIONS)
+        ast.Parameter(name_token=n, colon_token=cln, type=t, equal_token=None, default=None, LOCATIONS)
     }
 
-param_default[Parameter]:
+param_default[ast.Parameter]:
     | n=NAME cln=':' t=type eq='=' v=expression {
-        Parameter(name_token=n, colon_token=cln, type=t, equal_token=eq, default=v, LOCATIONS)
+        ast.Parameter(name_token=n, colon_token=cln, type=t, equal_token=eq, default=v, LOCATIONS)
     }
 
-comment[Comment]:
-    | c=COMMENT NEWLINE { Comment(token=c, LOCATIONS) }
+comment[ast.Comment]:
+    | c=COMMENT NEWLINE { ast.Comment(token=c, LOCATIONS) }
 
-statement[Statement | Comment]:
+statement[ast.Statement | ast.Comment]:
     | inline_stmts
     | comment
     | compound_stmt
 
-block[Statement]:
-    | NEWLINE INDENT a=statement+ DEDENT { Block(body=a, LOCATIONS) }
+block[ast.Statement]:
+    | NEWLINE INDENT a=statement+ DEDENT { ast.Block(body=a, LOCATIONS) }
     | inline_stmts
 
-inline_stmts[Statement]:
+inline_stmts[ast.Statement]:
     | s=simple_stmt !';' (NEWLINE | COMMENT_SEP) { s }
-    | ss=';'.simple_stmt+ ';'? (NEWLINE | COMMENT_SEP) { Block(body=ss, LOCATIONS) }
+    | ss=';'.simple_stmt+ ';'? (NEWLINE | COMMENT_SEP) { ast.Block(body=ss, LOCATIONS) }
 
-simple_stmt[Statement]:
+simple_stmt[ast.Statement]:
     | var_decl
     | assign_stmt
     | augassign_stmt
-    | kw='return' v=expression? { ReturnStatement(return_token=kw, value=v, LOCATIONS) }
-    | kw='break' { BreakStatement(break_token=kw, LOCATIONS) }
-    | kw='continue' { ContinueStatement(continue_token=kw, LOCATIONS) }
-    | kw='pass' { PassStatement(pass_token=kw, LOCATIONS) }
-    | e=expression { ExpressionStatement(expression=e, LOCATIONS) }
+    | kw='return' v=expression? { ast.ReturnStatement(return_token=kw, value=v, LOCATIONS) }
+    | kw='break' { ast.BreakStatement(break_token=kw, LOCATIONS) }
+    | kw='continue' { ast.ContinueStatement(continue_token=kw, LOCATIONS) }
+    | kw='pass' { ast.PassStatement(pass_token=kw, LOCATIONS) }
+    | e=expression { ast.ExpressionStatement(expression=e, LOCATIONS) }
 
-assign_stmt[AssignStatement]:
-    | t=left_expr o='=' v=expression { AssignStatement(target=t, equal_token=o, value=v, LOCATIONS) }
+assign_stmt[ast.AssignStatement]:
+    | t=left_expr o='=' v=expression { ast.AssignStatement(target=t, equal_token=o, value=v, LOCATIONS) }
 
-augassign_stmt[AugAssignStatement]:
-    | t=left_expr o=augassign_op v=expression { AugAssignStatement(target=t, op=o, value=v, LOCATIONS) }
+augassign_stmt[ast.AugAssignStatement]:
+    | t=left_expr o=augassign_op v=expression { ast.AugAssignStatement(target=t, op=o, value=v, LOCATIONS) }
 
-augassign_op[ArithmeticOp]:
-    | a='+=' { AddOp(token=a, LOCATIONS) }
-    | a='-=' { SubOp(token=a, LOCATIONS) }
-    | a='*=' { MulOp(token=a, LOCATIONS) }
-    | a='/=' { DivOp(token=a, LOCATIONS) }
-    | a='//=' { FloorDivOp(token=a, LOCATIONS) }
-    | a='%=' { ModOp(token=a, LOCATIONS) }
+augassign_op[ast.ArithmeticOp]:
+    | a='+=' { ast.AddOp(token=a, LOCATIONS) }
+    | a='-=' { ast.SubOp(token=a, LOCATIONS) }
+    | a='*=' { ast.MulOp(token=a, LOCATIONS) }
+    | a='/=' { ast.DivOp(token=a, LOCATIONS) }
+    | a='//=' { ast.FloorDivOp(token=a, LOCATIONS) }
+    | a='%=' { ast.ModOp(token=a, LOCATIONS) }
 
-compound_stmt[Statement]:
+compound_stmt[ast.Statement]:
     | if_stmt
     | while_stmt
     | for_stmt
 
-var_decl[VariableDeclarationStatement]:
+var_decl[ast.VariableDeclarationStatement]:
     | n=NAME cln=':' t=type eq='=' v=expression {
-        VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=eq, value=v, LOCATIONS)
+        ast.VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=eq, value=v, LOCATIONS)
     }
     | n=NAME cln=':' t=type {
-        VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=None, value=None, LOCATIONS)
+        ast.VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=None, value=None, LOCATIONS)
     }
 
-if_stmt[IfStatement]:
+if_stmt[ast.IfStatement]:
     | kw_if='if' t=expression cln=':' b=block kw_else='else' el=if_stmt {
-        IfStatement(if_token=kw_if, test=t, colon_token=cln, body=b, else_token=kw_else, else_colon_token=None, orelse=el, LOCATIONS)
+        ast.IfStatement(if_token=kw_if, test=t, colon_token=cln, body=b, else_token=kw_else, else_colon_token=None, orelse=el, LOCATIONS)
     }
     | kw_if='if' t=expression cln_if=':' b_if=block kw_else='else' cln_else=':' b_else=block {
-        IfStatement(if_token=kw_if, test=t, colon_token=cln_if, body=b_if, else_token=kw_else, else_colon_token=cln_else, orelse=b_else, LOCATIONS)
+        ast.IfStatement(if_token=kw_if, test=t, colon_token=cln_if, body=b_if, else_token=kw_else, else_colon_token=cln_else, orelse=b_else, LOCATIONS)
     }
     | kw='if' t=expression cln=':' b=block {
-        IfStatement(if_token=kw, test=t, colon_token=cln, body=b, else_token=None, else_colon_token=None, orelse=None, LOCATIONS)
+        ast.IfStatement(if_token=kw, test=t, colon_token=cln, body=b, else_token=None, else_colon_token=None, orelse=None, LOCATIONS)
     }
 
-while_stmt[WhileStatement]:
+while_stmt[ast.WhileStatement]:
     | kw='while' t=expression cln=':' b=block {
-        WhileStatement(while_token=kw, test=t, colon_token=cln, body=b, LOCATIONS)
+        ast.WhileStatement(while_token=kw, test=t, colon_token=cln, body=b, LOCATIONS)
     }
 
-for_stmt[ForStatement]:
+for_stmt[ast.ForStatement]:
     | kw='for' lp='(' i=simple_stmt s1=';' t=expression s2=';' e=simple_stmt rp=')' cln=':' b=block {
-        ForStatement(for_token=kw, lparen_token=lp, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=rp, colon_token=cln, body=b, LOCATIONS)
+        ast.ForStatement(for_token=kw, lparen_token=lp, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=rp, colon_token=cln, body=b, LOCATIONS)
     }
     | kw='for' i=simple_stmt s1=';' t=expression s2=';' e=simple_stmt cln=':' b=block {
-        ForStatement(for_token=kw, lparen_token=None, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=None, colon_token=cln, body=b, LOCATIONS)
+        ast.ForStatement(for_token=kw, lparen_token=None, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=None, colon_token=cln, body=b, LOCATIONS)
     }
 
 
-orop[OrOp]: a='or' {OrOp(token=a, LOCATIONS)}
-andop[AndOp]: a='and' {AndOp(token=a, LOCATIONS)}
-notop[NotOp]: a='not' {NotOp(token=a, LOCATIONS)}
+orop[ast.OrOp]: a='or' {ast.OrOp(token=a, LOCATIONS)}
+andop[ast.AndOp]: a='and' {ast.AndOp(token=a, LOCATIONS)}
+notop[ast.NotOp]: a='not' {ast.NotOp(token=a, LOCATIONS)}
 
 
-expression[Expression] (memo):
+expression[ast.Expression] (memo):
     | b=or_expr kw_if='if' t=or_expr kw_else='else' e=expression {
-        IfExpression(body=b, if_token=kw_if, test=t, else_token=kw_else, orelse=e, LOCATIONS)
+        ast.IfExpression(body=b, if_token=kw_if, test=t, else_token=kw_else, orelse=e, LOCATIONS)
     }
     | or_expr
 
-or_expr[Expression]:
-    | l=and_expr o=orop r=expression { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+or_expr[ast.Expression]:
+    | l=and_expr o=orop r=expression { ast.BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
     | and_expr
 
-and_expr[Expression]:
-    | l=not_expr o=andop r=and_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+and_expr[ast.Expression]:
+    | l=not_expr o=andop r=and_expr { ast.BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
     | not_expr
 
-not_expr[Expression]:
-    | o=notop a=comp_expr { UnaryExpression(operand=a, op=o, LOCATIONS) }
+not_expr[ast.Expression]:
+    | o=notop a=comp_expr { ast.UnaryExpression(operand=a, op=o, LOCATIONS) }
     | comp_expr
 
-comp_expr[Expression]:
-    | l=sum_expr o=compop r=sum_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+comp_expr[ast.Expression]:
+    | l=sum_expr o=compop r=sum_expr { ast.BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
     | sum_expr
 
-compop[BinaryOp]:
-    | a='==' { EqOp(token=a, LOCATIONS) }
-    | a='!=' { NotEqOp(token=a, LOCATIONS) }
-    | a='<' { LtOp(token=a, LOCATIONS) }
-    | a='<=' { LtEOp(token=a, LOCATIONS) }
-    | a='>' { GtOp(token=a, LOCATIONS) }
-    | a='>=' { GtEOp(token=a, LOCATIONS) }
+compop[ast.BinaryOp]:
+    | a='==' { ast.EqOp(token=a, LOCATIONS) }
+    | a='!=' { ast.NotEqOp(token=a, LOCATIONS) }
+    | a='<' { ast.LtOp(token=a, LOCATIONS) }
+    | a='<=' { ast.LtEOp(token=a, LOCATIONS) }
+    | a='>' { ast.GtOp(token=a, LOCATIONS) }
+    | a='>=' { ast.GtEOp(token=a, LOCATIONS) }
 
-addop[AddOp]: a='+' { AddOp(token=a, LOCATIONS) }
-subop[SubOp]: a='-' { SubOp(token=a, LOCATIONS) }
-mulop[MulOp]: a='*' { MulOp(token=a, LOCATIONS) }
-divop[DivOp]: a='/' { DivOp(token=a, LOCATIONS) }
-modop[ModOp]: a='%' { ModOp(token=a, LOCATIONS) }
-floordivop[FloorDivOp]: a='//' { FloorDivOp(token=a, LOCATIONS) }
+addop[ast.AddOp]: a='+' { ast.AddOp(token=a, LOCATIONS) }
+subop[ast.SubOp]: a='-' { ast.SubOp(token=a, LOCATIONS) }
+mulop[ast.MulOp]: a='*' { ast.MulOp(token=a, LOCATIONS) }
+divop[ast.DivOp]: a='/' { ast.DivOp(token=a, LOCATIONS) }
+modop[ast.ModOp]: a='%' { ast.ModOp(token=a, LOCATIONS) }
+floordivop[ast.FloorDivOp]: a='//' { ast.FloorDivOp(token=a, LOCATIONS) }
 
-uop[PosOp | NegOp]:
-    | a='+' { PosOp(token=a, LOCATIONS) }
-    | a='-' { NegOp(token=a, LOCATIONS) }
+uop[ast.PosOp | ast.NegOp]:
+    | a='+' { ast.PosOp(token=a, LOCATIONS) }
+    | a='-' { ast.NegOp(token=a, LOCATIONS) }
 
-sum_expr[Expression]:
-    | l=term_expr o=(addop | subop) r=sum_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+sum_expr[ast.Expression]:
+    | l=term_expr o=(addop | subop) r=sum_expr { ast.BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
     | term_expr
 
-term_expr[Expression]:
-    | l=atom_expr o=(mulop | divop | modop | floordivop) r=term_expr { BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
+term_expr[ast.Expression]:
+    | l=atom_expr o=(mulop | divop | modop | floordivop) r=term_expr { ast.BinaryExpression(left=l, op=o, right=r, LOCATIONS) }
     | atom_expr
 
-atom_expr[Expression]:
-    | o=uop a=atom_expr { UnaryExpression(operand=a, op=o, LOCATIONS) }
+atom_expr[ast.Expression]:
+    | o=uop a=atom_expr { ast.UnaryExpression(operand=a, op=o, LOCATIONS) }
     | c=atom_expr lp='(' ag=argument_list? rp=')' {
-        CallExpression(callee=c, lparen_token=lp, args=ag or [], rparen_token=rp, LOCATIONS)
+        ast.CallExpression(callee=c, lparen_token=lp, args=ag or [], rparen_token=rp, LOCATIONS)
     }
-    | a='true' { Constant(value=a, LOCATIONS) }
-    | a='false' { Constant(value=a, LOCATIONS) }
-    | a=NAME { Identifier(token=a, context=Load(), LOCATIONS) }
-    | a=(INT | FLOAT) { Constant(value=a, LOCATIONS) }
-    | a=STRING { Constant(value=a, LOCATIONS) }
+    | a='true' { ast.Constant(value=a, LOCATIONS) }
+    | a='false' { ast.Constant(value=a, LOCATIONS) }
+    | a=NAME { ast.Identifier(token=a, context=ast.Load(), LOCATIONS) }
+    | a=(INT | FLOAT) { ast.Constant(value=a, LOCATIONS) }
+    | a=STRING { ast.Constant(value=a, LOCATIONS) }
     | '(' a=expression ')' { a }
 
-left_expr[LeftExpression]:
-    | a=NAME { Identifier(token=a, context=Store(), LOCATIONS) }
+left_expr[ast.LeftExpression]:
+    | a=NAME { ast.Identifier(token=a, context=ast.Store(), LOCATIONS) }
 
-argument_list[list[Argument]]:
+argument_list[list[ast.Argument]]:
     | a=','.pos_arg+ b=[',' z=','.kw_arg+ {z}] ','? { a + (b or []) }
     | a=','.kw_arg+ ','? { a }
 
-pos_arg[PositionalArgument]:
-    | v=expression !'=' { PositionalArgument(value=v, LOCATIONS) }
+pos_arg[ast.PositionalArgument]:
+    | v=expression !'=' { ast.PositionalArgument(value=v, LOCATIONS) }
 
-kw_arg[KeywordArgument]:
-    | n=NAME eq='=' !',' v=expression { KeywordArgument(name_token=n, equal_token=eq, value=v, LOCATIONS) }
+kw_arg[ast.KeywordArgument]:
+    | n=NAME eq='=' !',' v=expression { ast.KeywordArgument(name_token=n, equal_token=eq, value=v, LOCATIONS) }
 
-type[Type]:
-    | a='Int' { IntType(token=a, LOCATIONS) }
-    | a='Bool' { BoolType(token=a, LOCATIONS) }
-    | a='Float' { FloatType(token=a, LOCATIONS) }
+type[ast.Type]:
+    | a='Int' { ast.IntType(token=a, LOCATIONS) }
+    | a='Bool' { ast.BoolType(token=a, LOCATIONS) }
+    | a='Float' { ast.FloatType(token=a, LOCATIONS) }

@@ -2,13 +2,13 @@
 # To regenerate this, `cd` to the top directory of this project and run:
 # `$python -m vcs.pegen vcs/vcs.gram -o vcs/parser.py`
 
-from typing import Any, Callable, ClassVar, cast
 from functools import wraps
+from typing import Any, Callable, ClassVar, cast
 
-from vcs.errors import *
-from vcs.lexer import Lexer, TokenInfo, TokenType
+from vcs import astnodes as ast
+from vcs import errors as err
+from vcs import lexer as lex
 
-from vcs.astnodes import *
 
 
 type Mark = int
@@ -235,7 +235,7 @@ class TokenStream:
     Keeps tokens in a buffer so callers can peek, getnext, mark/reset etc
     """
 
-    def __init__(self, lexer: Lexer):
+    def __init__(self, lexer: lex.Lexer):
         self.filename = lexer.filename
         self.source = lexer.source
         self.source_lines = lexer.source_lines
@@ -243,44 +243,44 @@ class TokenStream:
 
         self._lexer = lexer
         self._tokgen = iter(lexer)
-        self._tokens: list[TokenInfo] = []
+        self._tokens: list[lex.TokenInfo] = []
         self._index: int = 0
 
-    def get_error_info_on(self, token: TokenInfo | None):
+    def get_error_info_on(self, token: lex.TokenInfo | None):
         if token is None:
             token = self._tokens[self._index - 1]
         return self._lexer.get_error_info(len(token.value), token.lexpos)
 
-    def get_error_info_range(self, start_tok: TokenInfo, end_tok: TokenInfo):
+    def get_error_info_range(self, start_tok: lex.TokenInfo, end_tok: lex.TokenInfo):
         return self._lexer.get_error_info(
             end_tok.lexpos + len(end_tok.value) - start_tok.lexpos,
             start_tok.lexpos,
         )
 
-    def getnext(self) -> TokenInfo:
+    def getnext(self) -> lex.TokenInfo:
         tok = self.peek()
         self._index += 1
         return tok
 
-    def peek(self) -> TokenInfo:
+    def peek(self) -> lex.TokenInfo:
         while self._index == len(self._tokens):
             tok = next(self._tokgen)
             self._tokens.append(tok)
         return self._tokens[self._index]
 
-    def diagnose(self) -> TokenInfo:
+    def diagnose(self) -> lex.TokenInfo:
         if not self._tokens:
             self.getnext()
         return self._tokens[-1]
 
-    def last_nonblank_token(self) -> TokenInfo:
+    def last_nonblank_token(self) -> lex.TokenInfo:
         for tok in reversed(self._tokens[:self._index]):
             if tok.type not in [
-                TokenType.ENDMARKER,
-                TokenType.NEWLINE,
-                TokenType.INDENT,
-                TokenType.DEDENT,
-                TokenType.ERRORTOKEN,
+                lex.TokenType.ENDMARKER,
+                lex.TokenType.NEWLINE,
+                lex.TokenType.INDENT,
+                lex.TokenType.DEDENT,
+                lex.TokenType.ERRORTOKEN,
             ]:
                 break
         return tok  # type: ignore
@@ -303,7 +303,7 @@ class Parser:
     KEYWORDS: ClassVar[tuple[str, ...]]
     SOFT_KEYWORDS: ClassVar[tuple[str, ...]]
 
-    def __init__(self, lexer: Lexer, errors: ErrorCollector, skip_comments=False, verbose=False):
+    def __init__(self, lexer: lex.Lexer, errors: err.ErrorCollector, skip_comments=False, verbose=False):
         tokenstream = TokenStream(lexer)
         self._tokenstream = tokenstream
 
@@ -334,8 +334,8 @@ class Parser:
         }"
 
     @memoize
-    def _accept(self, token_type: TokenType | str) -> TokenInfo | None:
-        # Accept a token of the given type or value; returns the TokenInfo or None
+    def _accept(self, token_type: lex.TokenType | str) -> lex.TokenInfo | None:
+        # Accept a token of the given type or value; returns the lex.TokenInfo or None
         while True:
             mark = self._mark()
             try:
@@ -343,19 +343,19 @@ class Parser:
             except StopIteration:
                 return None
 
-            if not (self.skip_comments and tok.type == TokenType.COMMENT):
+            if not (self.skip_comments and tok.type == lex.TokenType.COMMENT):
                 break
             
         if tok.type == token_type:
-            if token_type == TokenType.NAME and tok.value in self.KEYWORDS:
+            if token_type == lex.TokenType.NAME and tok.value in self.KEYWORDS:
                 return None
             return tok    
-        if tok.type == TokenType.NAME and tok.value == token_type:
+        if tok.type == lex.TokenType.NAME and tok.value == token_type:
             return tok
-        if tok.type == TokenType.OP and tok.value == token_type:
+        if tok.type == lex.TokenType.OP and tok.value == token_type:
             return tok
         if (
-            tok.type == TokenType.NAME
+            tok.type == lex.TokenType.NAME
             and token_type == "SOFT_KEYWORD"
             and tok.value in self.SOFT_KEYWORDS
         ):
@@ -363,11 +363,11 @@ class Parser:
         
         self._reset(mark)
 
-    def _expect(self, res: Any, expectation: TokenType | str) -> TokenInfo | None:
+    def _expect(self, res: Any, expectation: lex.TokenType | str) -> lex.TokenInfo | None:
         # Ensure that a previous _accept returned a result, otherwise report an error
         if res is None:
-            string = expectation.name.lower() if isinstance(expectation, TokenType) else expectation
-            self.report(ExpectationFailed(self.get_error_info_on(), string))
+            string = expectation.name.lower() if isinstance(expectation, lex.TokenType) else expectation
+            self.report(err.ExpectationFailed(self.get_error_info_on(), string))
         return res
 
     def _positive_lookahead[T](self, func: Callable[..., T], *args: object) -> T:
@@ -384,14 +384,14 @@ class Parser:
         self._reset(mark)
         return not ok
 
-    def report(self, error: CompilerError):
+    def report(self, error: err.CompilerError):
         self.errors.add(error)
 
-    def get_error_info_on(self, node: ASTNode | TokenInfo | None = None) -> ErrorInfo:
-        if isinstance(node, TokenInfo) or node is None:
+    def get_error_info_on(self, node: ast.ASTNode | lex.TokenInfo | None = None) -> err.ErrorInfo:
+        if isinstance(node, lex.TokenInfo) or node is None:
             return self._tokenstream.get_error_info_on(node)
         
-        return ErrorInfo(
+        return err.ErrorInfo(
             node.filename,
             node.lineno,
             node.column,
@@ -402,45 +402,45 @@ class Parser:
 
     def get_error_info_between(
         self,
-        start_node: ASTNode | TokenInfo,
-        end_node: ASTNode | TokenInfo,
-    ) -> ErrorInfo:
+        start_node: ast.ASTNode | lex.TokenInfo,
+        end_node: ast.ASTNode | lex.TokenInfo,
+    ) -> err.ErrorInfo:
         """
         Report an error where the start and end locations are known
         """
         start_lineno, start_column = start_node.lineno, start_node.column
 
-        if isinstance(end_node, TokenInfo):
+        if isinstance(end_node, lex.TokenInfo):
             end_lineno, end_column = end_node.get_endpos()
         else:
             end_lineno, end_column = end_node.end_lineno, end_node.end_column
 
-        return ErrorInfo(start_node.filename, start_lineno, start_column, self._source, end_lineno, end_column)
+        return err.ErrorInfo(start_node.filename, start_lineno, start_column, self._source, end_lineno, end_column)
 
-    def get_error_info_starting_from(self, node: ASTNode | TokenInfo) -> ErrorInfo:
+    def get_error_info_starting_from(self, node: ast.ASTNode | lex.TokenInfo) -> err.ErrorInfo:
         return self.get_error_info_between(node, self._tokenstream.diagnose())
 
-    def get_error_info_next_token(self) -> ErrorInfo:
+    def get_error_info_next_token(self) -> err.ErrorInfo:
         return self.get_error_info_on(self._peek())
     
     def parse(self):
-        return self._start() or [Module(body=[]), self.report(ParseError(self.get_error_info_on(self.diagnose())))][0]
+        return self._start() or [ast.Module(body=[]), self.report(err.ParseError(self.get_error_info_on(self.diagnose())))][0]
 
     @memoize
-    def _start(self) -> Module | None:
+    def _start(self) -> ast . Module | None:
         # start: module $
         mark = self._mark()
         if (
             (m := self._module())
             and
-            (self._accept(TokenType.ENDMARKER))
+            (self._accept(lex.TokenType.ENDMARKER))
         ):
             return m
         self._reset(mark)
         return None
 
     @memoize
-    def _module(self) -> Module | None:
+    def _module(self) -> ast . Module | None:
         # module: toplevel+
         mark = self._mark()
         tok = self._peek()
@@ -450,12 +450,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Module(body=f, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Module(body=f, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _toplevel(self) -> FunctionDeclaration | Comment | None:
+    def _toplevel(self) -> ast . FunctionDeclaration | ast . Comment | None:
         # toplevel: func_decl | comment
         mark = self._mark()
         if (
@@ -471,13 +471,13 @@ class Parser:
         return None
 
     @memoize
-    def _func_decl(self) -> FunctionDeclaration | None:
+    def _func_decl(self) -> ast . FunctionDeclaration | None:
         # func_decl: NAME '(' params? ')' '->' type ':' block | NAME '(' params? ')' ':' block
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (lp := self._accept('('))
             and
@@ -495,10 +495,10 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=arr, return_type=t, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=arr, return_type=t, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (lp := self._accept('('))
             and
@@ -512,12 +512,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=None, return_type=None, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.FunctionDeclaration(name_token=n, lparen_token=lp, params=p or [], rparen_token=rp, arrow_token=None, return_type=None, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _params(self) -> list [Parameter] | None:
+    def _params(self) -> list [ast . Parameter] | None:
         # params: ','.param_no_default+ [',' ','.param_default+] ','? | ','.param_default+ ','?
         mark = self._mark()
         if (
@@ -539,13 +539,13 @@ class Parser:
         return None
 
     @memoize
-    def _param_no_default(self) -> Parameter | None:
+    def _param_no_default(self) -> ast . Parameter | None:
         # param_no_default: NAME ':' type !'='
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (cln := self._accept(':'))
             and
@@ -555,18 +555,18 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Parameter(name_token=n, colon_token=cln, type=t, equal_token=None, default=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Parameter(name_token=n, colon_token=cln, type=t, equal_token=None, default=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _param_default(self) -> Parameter | None:
+    def _param_default(self) -> ast . Parameter | None:
         # param_default: NAME ':' type '=' expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (cln := self._accept(':'))
             and
@@ -578,29 +578,29 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Parameter(name_token=n, colon_token=cln, type=t, equal_token=eq, default=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Parameter(name_token=n, colon_token=cln, type=t, equal_token=eq, default=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _comment(self) -> Comment | None:
+    def _comment(self) -> ast . Comment | None:
         # comment: COMMENT NEWLINE
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (c := self._accept(TokenType.COMMENT))
+            (c := self._accept(lex.TokenType.COMMENT))
             and
-            (self._accept(TokenType.NEWLINE))
+            (self._accept(lex.TokenType.NEWLINE))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Comment(token=c, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Comment(token=c, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _statement(self) -> Statement | Comment | None:
+    def _statement(self) -> ast . Statement | ast . Comment | None:
         # statement: inline_stmts | comment | compound_stmt
         mark = self._mark()
         if (
@@ -621,23 +621,23 @@ class Parser:
         return None
 
     @memoize
-    def _block(self) -> Statement | None:
+    def _block(self) -> ast . Statement | None:
         # block: NEWLINE INDENT statement+ DEDENT | inline_stmts
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (self._accept(TokenType.NEWLINE))
+            (self._accept(lex.TokenType.NEWLINE))
             and
-            (self._accept(TokenType.INDENT))
+            (self._accept(lex.TokenType.INDENT))
             and
             (a := self._loop1_7())
             and
-            (self._accept(TokenType.DEDENT))
+            (self._accept(lex.TokenType.DEDENT))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Block(body=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Block(body=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (inline_stmts := self._inline_stmts())
@@ -647,7 +647,7 @@ class Parser:
         return None
 
     @memoize
-    def _inline_stmts(self) -> Statement | None:
+    def _inline_stmts(self) -> ast . Statement | None:
         # inline_stmts: simple_stmt !';' (NEWLINE | COMMENT_SEP) | ';'.simple_stmt+ ';'? (NEWLINE | COMMENT_SEP)
         mark = self._mark()
         tok = self._peek()
@@ -670,12 +670,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Block(body=ss, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Block(body=ss, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _simple_stmt(self) -> Statement | None:
+    def _simple_stmt(self) -> ast . Statement | None:
         # simple_stmt: var_decl | assign_stmt | augassign_stmt | 'return' expression? | 'break' | 'continue' | 'pass' | expression
         mark = self._mark()
         tok = self._peek()
@@ -702,40 +702,40 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ReturnStatement(return_token=kw, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ReturnStatement(return_token=kw, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw := self._accept('break'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BreakStatement(break_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BreakStatement(break_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw := self._accept('continue'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ContinueStatement(continue_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ContinueStatement(continue_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw := self._accept('pass'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return PassStatement(pass_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.PassStatement(pass_token=kw, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (e := self._expression())
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ExpressionStatement(expression=e, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ExpressionStatement(expression=e, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _assign_stmt(self) -> AssignStatement | None:
+    def _assign_stmt(self) -> ast . AssignStatement | None:
         # assign_stmt: left_expr '=' expression
         mark = self._mark()
         tok = self._peek()
@@ -749,12 +749,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return AssignStatement(target=t, equal_token=o, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.AssignStatement(target=t, equal_token=o, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _augassign_stmt(self) -> AugAssignStatement | None:
+    def _augassign_stmt(self) -> ast . AugAssignStatement | None:
         # augassign_stmt: left_expr augassign_op expression
         mark = self._mark()
         tok = self._peek()
@@ -768,12 +768,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return AugAssignStatement(target=t, op=o, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.AugAssignStatement(target=t, op=o, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _augassign_op(self) -> ArithmeticOp | None:
+    def _augassign_op(self) -> ast . ArithmeticOp | None:
         # augassign_op: '+=' | '-=' | '*=' | '/=' | '//=' | '%='
         mark = self._mark()
         tok = self._peek()
@@ -783,47 +783,47 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return AddOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.AddOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('-='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return SubOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.SubOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('*='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MulOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.MulOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('/='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return DivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.DivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('//='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return FloorDivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.FloorDivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('%='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ModOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ModOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _compound_stmt(self) -> Statement | None:
+    def _compound_stmt(self) -> ast . Statement | None:
         # compound_stmt: if_stmt | while_stmt | for_stmt
         mark = self._mark()
         if (
@@ -844,13 +844,13 @@ class Parser:
         return None
 
     @memoize
-    def _var_decl(self) -> VariableDeclarationStatement | None:
+    def _var_decl(self) -> ast . VariableDeclarationStatement | None:
         # var_decl: NAME ':' type '=' expression | NAME ':' type
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (cln := self._accept(':'))
             and
@@ -862,10 +862,10 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=eq, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=eq, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (cln := self._accept(':'))
             and
@@ -873,12 +873,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=None, value=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.VariableDeclarationStatement(name_token=n, colon_token=cln, type=t, equal_token=None, value=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _if_stmt(self) -> IfStatement | None:
+    def _if_stmt(self) -> ast . IfStatement | None:
         # if_stmt: 'if' expression ':' block 'else' if_stmt | 'if' expression ':' block 'else' ':' block | 'if' expression ':' block
         mark = self._mark()
         tok = self._peek()
@@ -898,7 +898,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return IfStatement(if_token=kw_if, test=t, colon_token=cln, body=b, else_token=kw_else, else_colon_token=None, orelse=el, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.IfStatement(if_token=kw_if, test=t, colon_token=cln, body=b, else_token=kw_else, else_colon_token=None, orelse=el, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw_if := self._accept('if'))
@@ -917,7 +917,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return IfStatement(if_token=kw_if, test=t, colon_token=cln_if, body=b_if, else_token=kw_else, else_colon_token=cln_else, orelse=b_else, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.IfStatement(if_token=kw_if, test=t, colon_token=cln_if, body=b_if, else_token=kw_else, else_colon_token=cln_else, orelse=b_else, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw := self._accept('if'))
@@ -930,12 +930,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return IfStatement(if_token=kw, test=t, colon_token=cln, body=b, else_token=None, else_colon_token=None, orelse=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.IfStatement(if_token=kw, test=t, colon_token=cln, body=b, else_token=None, else_colon_token=None, orelse=None, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _while_stmt(self) -> WhileStatement | None:
+    def _while_stmt(self) -> ast . WhileStatement | None:
         # while_stmt: 'while' expression ':' block
         mark = self._mark()
         tok = self._peek()
@@ -951,12 +951,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return WhileStatement(while_token=kw, test=t, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.WhileStatement(while_token=kw, test=t, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _for_stmt(self) -> ForStatement | None:
+    def _for_stmt(self) -> ast . ForStatement | None:
         # for_stmt: 'for' '(' simple_stmt ';' expression ';' simple_stmt ')' ':' block | 'for' simple_stmt ';' expression ';' simple_stmt ':' block
         mark = self._mark()
         tok = self._peek()
@@ -984,7 +984,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ForStatement(for_token=kw, lparen_token=lp, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=rp, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ForStatement(for_token=kw, lparen_token=lp, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=rp, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (kw := self._accept('for'))
@@ -1005,12 +1005,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ForStatement(for_token=kw, lparen_token=None, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=None, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ForStatement(for_token=kw, lparen_token=None, init_stmt=i, semicolon_token1=s1, test=t, semicolon_token2=s2, end_stmt=e, rparen_token=None, colon_token=cln, body=b, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _orop(self) -> OrOp | None:
+    def _orop(self) -> ast . OrOp | None:
         # orop: 'or'
         mark = self._mark()
         tok = self._peek()
@@ -1020,12 +1020,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return OrOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.OrOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _andop(self) -> AndOp | None:
+    def _andop(self) -> ast . AndOp | None:
         # andop: 'and'
         mark = self._mark()
         tok = self._peek()
@@ -1035,12 +1035,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return AndOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.AndOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _notop(self) -> NotOp | None:
+    def _notop(self) -> ast . NotOp | None:
         # notop: 'not'
         mark = self._mark()
         tok = self._peek()
@@ -1050,12 +1050,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return NotOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.NotOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _expression(self) -> Expression | None:
+    def _expression(self) -> ast . Expression | None:
         # expression: or_expr 'if' or_expr 'else' expression | or_expr
         mark = self._mark()
         tok = self._peek()
@@ -1073,7 +1073,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return IfExpression(body=b, if_token=kw_if, test=t, else_token=kw_else, orelse=e, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.IfExpression(body=b, if_token=kw_if, test=t, else_token=kw_else, orelse=e, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (or_expr := self._or_expr())
@@ -1083,7 +1083,7 @@ class Parser:
         return None
 
     @memoize
-    def _or_expr(self) -> Expression | None:
+    def _or_expr(self) -> ast . Expression | None:
         # or_expr: and_expr orop expression | and_expr
         mark = self._mark()
         tok = self._peek()
@@ -1097,7 +1097,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (and_expr := self._and_expr())
@@ -1107,7 +1107,7 @@ class Parser:
         return None
 
     @memoize
-    def _and_expr(self) -> Expression | None:
+    def _and_expr(self) -> ast . Expression | None:
         # and_expr: not_expr andop and_expr | not_expr
         mark = self._mark()
         tok = self._peek()
@@ -1121,7 +1121,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (not_expr := self._not_expr())
@@ -1131,7 +1131,7 @@ class Parser:
         return None
 
     @memoize
-    def _not_expr(self) -> Expression | None:
+    def _not_expr(self) -> ast . Expression | None:
         # not_expr: notop comp_expr | comp_expr
         mark = self._mark()
         tok = self._peek()
@@ -1143,7 +1143,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return UnaryExpression(operand=a, op=o, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.UnaryExpression(operand=a, op=o, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (comp_expr := self._comp_expr())
@@ -1153,7 +1153,7 @@ class Parser:
         return None
 
     @memoize
-    def _comp_expr(self) -> Expression | None:
+    def _comp_expr(self) -> ast . Expression | None:
         # comp_expr: sum_expr compop sum_expr | sum_expr
         mark = self._mark()
         tok = self._peek()
@@ -1167,7 +1167,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (sum_expr := self._sum_expr())
@@ -1177,7 +1177,7 @@ class Parser:
         return None
 
     @memoize
-    def _compop(self) -> BinaryOp | None:
+    def _compop(self) -> ast . BinaryOp | None:
         # compop: '==' | '!=' | '<' | '<=' | '>' | '>='
         mark = self._mark()
         tok = self._peek()
@@ -1187,47 +1187,47 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return EqOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.EqOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('!='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return NotEqOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.NotEqOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('<'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return LtOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.LtOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('<='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return LtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.LtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('>'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return GtOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.GtOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('>='))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return GtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.GtEOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _addop(self) -> AddOp | None:
+    def _addop(self) -> ast . AddOp | None:
         # addop: '+'
         mark = self._mark()
         tok = self._peek()
@@ -1237,12 +1237,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return AddOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.AddOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _subop(self) -> SubOp | None:
+    def _subop(self) -> ast . SubOp | None:
         # subop: '-'
         mark = self._mark()
         tok = self._peek()
@@ -1252,12 +1252,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return SubOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.SubOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _mulop(self) -> MulOp | None:
+    def _mulop(self) -> ast . MulOp | None:
         # mulop: '*'
         mark = self._mark()
         tok = self._peek()
@@ -1267,12 +1267,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return MulOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.MulOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _divop(self) -> DivOp | None:
+    def _divop(self) -> ast . DivOp | None:
         # divop: '/'
         mark = self._mark()
         tok = self._peek()
@@ -1282,12 +1282,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return DivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.DivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _modop(self) -> ModOp | None:
+    def _modop(self) -> ast . ModOp | None:
         # modop: '%'
         mark = self._mark()
         tok = self._peek()
@@ -1297,12 +1297,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ModOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.ModOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _floordivop(self) -> FloorDivOp | None:
+    def _floordivop(self) -> ast . FloorDivOp | None:
         # floordivop: '//'
         mark = self._mark()
         tok = self._peek()
@@ -1312,12 +1312,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return FloorDivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.FloorDivOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _uop(self) -> PosOp | NegOp | None:
+    def _uop(self) -> ast . PosOp | ast . NegOp | None:
         # uop: '+' | '-'
         mark = self._mark()
         tok = self._peek()
@@ -1327,19 +1327,19 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return PosOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.PosOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('-'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return NegOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.NegOp(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _sum_expr(self) -> Expression | None:
+    def _sum_expr(self) -> ast . Expression | None:
         # sum_expr: term_expr (addop | subop) sum_expr | term_expr
         mark = self._mark()
         tok = self._peek()
@@ -1353,7 +1353,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (term_expr := self._term_expr())
@@ -1363,7 +1363,7 @@ class Parser:
         return None
 
     @memoize
-    def _term_expr(self) -> Expression | None:
+    def _term_expr(self) -> ast . Expression | None:
         # term_expr: atom_expr (mulop | divop | modop | floordivop) term_expr | atom_expr
         mark = self._mark()
         tok = self._peek()
@@ -1377,7 +1377,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BinaryExpression(left=l, op=o, right=r, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (atom_expr := self._atom_expr())
@@ -1387,7 +1387,7 @@ class Parser:
         return None
 
     @memoize_left_rec
-    def _atom_expr(self) -> Expression | None:
+    def _atom_expr(self) -> ast . Expression | None:
         # atom_expr: uop atom_expr | atom_expr '(' argument_list? ')' | 'true' | 'false' | NAME | (INT | FLOAT) | STRING | '(' expression ')'
         mark = self._mark()
         tok = self._peek()
@@ -1399,7 +1399,7 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return UnaryExpression(operand=a, op=o, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.UnaryExpression(operand=a, op=o, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (c := self._atom_expr())
@@ -1412,42 +1412,42 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return CallExpression(callee=c, lparen_token=lp, args=ag or [], rparen_token=rp, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.CallExpression(callee=c, lparen_token=lp, args=ag or [], rparen_token=rp, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('true'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('false'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (a := self._accept(TokenType.NAME))
+            (a := self._accept(lex.TokenType.NAME))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Identifier(token=a, context=Load(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Identifier(token=a, context=ast.Load(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._tmp_14())
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
-            (a := self._accept(TokenType.STRING))
+            (a := self._accept(lex.TokenType.STRING))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Constant(value=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (self._accept('('))
@@ -1461,22 +1461,22 @@ class Parser:
         return None
 
     @memoize
-    def _left_expr(self) -> LeftExpression | None:
+    def _left_expr(self) -> ast . LeftExpression | None:
         # left_expr: NAME
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (a := self._accept(TokenType.NAME))
+            (a := self._accept(lex.TokenType.NAME))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return Identifier(token=a, context=Store(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Identifier(token=a, context=ast.Store(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _argument_list(self) -> list [Argument] | None:
+    def _argument_list(self) -> list [ast . Argument] | None:
         # argument_list: ','.pos_arg+ [',' ','.kw_arg+] ','? | ','.kw_arg+ ','?
         mark = self._mark()
         if (
@@ -1498,7 +1498,7 @@ class Parser:
         return None
 
     @memoize
-    def _pos_arg(self) -> PositionalArgument | None:
+    def _pos_arg(self) -> ast . PositionalArgument | None:
         # pos_arg: expression !'='
         mark = self._mark()
         tok = self._peek()
@@ -1510,18 +1510,18 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return PositionalArgument(value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.PositionalArgument(value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _kw_arg(self) -> KeywordArgument | None:
+    def _kw_arg(self) -> ast . KeywordArgument | None:
         # kw_arg: NAME '=' !',' expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
         if (
-            (n := self._accept(TokenType.NAME))
+            (n := self._accept(lex.TokenType.NAME))
             and
             (eq := self._accept('='))
             and
@@ -1531,12 +1531,12 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return KeywordArgument(name_token=n, equal_token=eq, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.KeywordArgument(name_token=n, equal_token=eq, value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
     @memoize
-    def _type(self) -> Type | None:
+    def _type(self) -> ast . Type | None:
         # type_: 'Int' | 'Bool' | 'Float'
         mark = self._mark()
         tok = self._peek()
@@ -1546,21 +1546,21 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return IntType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.IntType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('Bool'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return BoolType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.BoolType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept('Float'))
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return FloatType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.FloatType(token=a, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         return None
 
@@ -1668,12 +1668,12 @@ class Parser:
         # tmp_8: NEWLINE | COMMENT_SEP
         mark = self._mark()
         if (
-            (newline := self._accept(TokenType.NEWLINE))
+            (newline := self._accept(lex.TokenType.NEWLINE))
         ):
             return newline
         self._reset(mark)
         if (
-            (comment_sep := self._accept(TokenType.COMMENT_SEP))
+            (comment_sep := self._accept(lex.TokenType.COMMENT_SEP))
         ):
             return comment_sep
         self._reset(mark)
@@ -1714,12 +1714,12 @@ class Parser:
         # tmp_11: NEWLINE | COMMENT_SEP
         mark = self._mark()
         if (
-            (newline := self._accept(TokenType.NEWLINE))
+            (newline := self._accept(lex.TokenType.NEWLINE))
         ):
             return newline
         self._reset(mark)
         if (
-            (comment_sep := self._accept(TokenType.COMMENT_SEP))
+            (comment_sep := self._accept(lex.TokenType.COMMENT_SEP))
         ):
             return comment_sep
         self._reset(mark)
@@ -1772,12 +1772,12 @@ class Parser:
         # tmp_14: INT | FLOAT
         mark = self._mark()
         if (
-            (int := self._accept(TokenType.INT))
+            (int := self._accept(lex.TokenType.INT))
         ):
             return int
         self._reset(mark)
         if (
-            (float := self._accept(TokenType.FLOAT))
+            (float := self._accept(lex.TokenType.FLOAT))
         ):
             return float
         self._reset(mark)
@@ -1923,7 +1923,8 @@ class Parser:
 def main():
     import argparse
     import time
-    import sys
+
+    from vcs import utils
     
     argparser = argparse.ArgumentParser()
     argparser.add_argument(dest="filename", nargs="?", metavar="filename.vcs")
@@ -1955,8 +1956,8 @@ def main():
     def cli(filename: str, source: str):
         t0 = time.time()
 
-        errors = ErrorCollector()
-        lexer = Lexer(source, filename, errors, args.tabsize)
+        errors = err.ErrorCollector()
+        lexer = lex.Lexer(source, filename, errors, args.tabsize)
         parser = Parser(lexer, errors, skip_comments, verbose)
         tree = parser.parse()
     
@@ -1964,11 +1965,11 @@ def main():
 
         if tree is None:
             last_tok = parser.diagnose()
-            parser.report(ParseError(parser.get_error_info_on(last_tok)))
+            parser.report(err.ParseError(parser.get_error_info_on(last_tok)))
 
         if not errors.ok():
             for issue in errors.issues:
-                print(dump_error(issue), file=sys.stderr)
+                utils.print_compiler_error(issue)
             return
         
         if tree is None:
@@ -1996,7 +1997,6 @@ def main():
 
     with open(filename, encoding="utf8") as f:
         cli(filename, f.read())
-
 
 
 if __name__ == "__main__":

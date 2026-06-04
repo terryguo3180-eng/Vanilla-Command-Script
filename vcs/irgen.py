@@ -3,9 +3,9 @@ from contextlib import contextmanager
 
 from vcs import astnodes as ast
 from vcs import ir
+from vcs import lexer as lex
 from vcs import semantic as sem
-from vcs.errors import *
-from vcs.lexer import TokenType
+from vcs import utils
 
 
 class IRGenerator(ast.ASTNodeVisitor):
@@ -301,17 +301,17 @@ class IRGenerator(ast.ASTNodeVisitor):
                 self.emit(f_op(lhs, rhs, target))
 
         elif isinstance(node.op, ast.CompareOp):
-            op_str = {
-                ast.EqOp: 'eq',
-                ast.NegOp: 'ne',
-                ast.LtOp: 'lt',
-                ast.GtOp: 'gt',
-                ast.LtEOp: 'le',
-                ast.GtEOp: 'ge',
-            }[type(node.op)]
+            op = {
+                ast.EqOp: utils.EqOp,
+                ast.NotEqOp: utils.NotEqOp,
+                ast.LtOp: utils.LtOp,
+                ast.GtOp: utils.GtOp,
+                ast.LtEOp: utils.LtEOp,
+                ast.GtEOp: utils.GtEOp,
+            }[type(node.op)]()
 
             if is_int(left_sem) and is_int(right_sem):
-                self.emit(ir.ICmp(lhs, rhs, target, op_str))
+                self.emit(ir.ICmp(lhs, rhs, target, op))
             else:
                 if is_int(left_sem):
                     temp = self.builder.new_temp(ir.FloatType())
@@ -321,7 +321,7 @@ class IRGenerator(ast.ASTNodeVisitor):
                     temp = self.builder.new_temp(ir.FloatType())
                     self.emit(ir.IntToFloat(rhs, temp))
                     rhs = temp
-                self.emit(ir.FCmp(lhs, rhs, target, op_str))
+                self.emit(ir.FCmp(lhs, rhs, target, op))
 
         elif isinstance(node.op, ast.BinaryBoolOp):
             if isinstance(node.op, ast.AndOp):
@@ -381,9 +381,9 @@ class IRGenerator(ast.ASTNodeVisitor):
 
     def visit_Constant(self, node: ast.Constant) -> ir.Constant:
         value = node.value.value
-        if node.value.type == TokenType.INT:
+        if node.value.type == lex.TokenType.INT:
             return ir.Constant(int(value), ir.IntType())
-        elif node.value.type == TokenType.FLOAT:
+        elif node.value.type == lex.TokenType.FLOAT:
             return ir.Constant(float(value), ir.FloatType())
         elif value in ('true', 'false'):
             return ir.Constant(1 if value == 'true' else 0, ir.IntType())
@@ -404,8 +404,8 @@ class IRGenerator(ast.ASTNodeVisitor):
 
 def main():
     import argparse
-    import sys
 
+    from vcs import errors as err
     from vcs.lexer import Lexer
     from vcs.parser import Parser
     from vcs.semantic import SemanticAnalyzer
@@ -423,7 +423,7 @@ def main():
     with open(filename, encoding="utf8") as f:
         source = f.read()
 
-    errors = ErrorCollector()
+    errors = err.ErrorCollector()
     lexer = Lexer(source, filename, errors, args.tabsize)
     parser = Parser(lexer, errors, args.skip_comments)
     tree: ast.Module = parser.parse()
@@ -432,7 +432,7 @@ def main():
     typechecker.visit(tree)
     if not errors.ok():
         for issue in errors.issues:
-            print(dump_error(issue), file=sys.stderr)
+            utils.print_compiler_error(issue)
         return
     
     irgen = IRGenerator(

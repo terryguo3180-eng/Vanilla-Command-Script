@@ -19,24 +19,8 @@ import urllib.request
 if platform.system() != "Windows":
     import signal
 
-from vcs.ansi import AnsiCode
-from vcs.repl import REPL
-
-
-def color_text(text: str, color: str = AnsiCode.RESET, bold: bool = False) -> str:
-    return (AnsiCode.BOLD if bold else "") + color + text + AnsiCode.RESET
-
-def print_error(text: str, end="\n", flush=False) -> None:
-    print(color_text(text, AnsiCode.RED, bold=True), end=end, flush=flush)
-
-def print_success(text: str, end="\n", flush=False) -> None:
-    print(color_text(text, AnsiCode.GREEN), end=end, flush=flush)
-
-def print_info(text: str, end="\n", flush=False) -> None:
-    print(text, end=end, flush=flush)
-
-def print_warning(text: str, end="\n", flush=False) -> None:
-    print(color_text(text, AnsiCode.YELLOW), end=end, flush=flush)
+from vcs import utils
+from vcs import repl
 
 
 RCON_HOST = "127.0.0.1"
@@ -132,7 +116,7 @@ class MCRcon:
 
 
 def get_latest_paper_jar():
-    print_info("Fetching latest Paper version...")
+    utils.print_info("Fetching latest Paper version...")
     
     ver_url = "https://api.papermc.io/v2/projects/paper"
     try:
@@ -140,7 +124,7 @@ def get_latest_paper_jar():
             info = json.loads(r.read())
         vers = info["versions"]
         latest_ver = vers[-1]
-        print_info(f"Latest Paper game version: {latest_ver}")
+        utils.print_info(f"Latest Paper game version: {latest_ver}")
         
         builds_url = f"https://api.papermc.io/v2/projects/paper/versions/{latest_ver}/builds"
         with urllib.request.urlopen(builds_url) as r:
@@ -155,11 +139,11 @@ def get_latest_paper_jar():
             f"https://api.papermc.io/v2/projects/paper/versions/"
             f"{latest_ver}/builds/{buildno}/downloads/{filename}"
         )
-        print_info(f"Download URL: {download_url}")
+        utils.print_info(f"Download URL: {download_url}")
         
-        print_info("Downloading Paper... (this may take a moment)")
+        utils.print_info("Downloading Paper... (this may take a moment)")
         urllib.request.urlretrieve(download_url, "server.jar")
-        print_success("Paper download complete")
+        utils.print_success("Paper download complete")
         
         f_size = Path("server.jar").stat().st_size
         if f_size < 10 * 1024 * 1024:
@@ -167,16 +151,15 @@ def get_latest_paper_jar():
         return True
         
     except Exception as e:
-        print_error(f"Failed to download Paper: {e}")
-        print_warning("You can manually download Paper from https://papermc.io/downloads")
-        print_warning("and place it as 'server.jar' in the current directory.")
+        utils.print_error(f"Failed to download Paper: {e}")
+        utils.print_warning("You can manually download Paper from https://papermc.io/downloads")
+        utils.print_warning("and place it as 'server.jar' in the current directory.")
         return False
 
 
 def wait_for_rcon(host, port, timeout=45):
-    print_info("Waiting for server to start...", end="", flush=True)
+    utils.print_info("Waiting for server to start...")
     start = time.time()
-    dots = 0
     while time.time() - start < timeout:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -186,8 +169,6 @@ def wait_for_rcon(host, port, timeout=45):
             print()  # newline after dots
             return True
         except:
-            print_info(".", end="", flush=True)
-            dots += 1
             time.sleep(1)
     print()  # final newline
     return False
@@ -199,7 +180,7 @@ def send_cmd(cmd, host=RCON_HOST, port=RCON_PORT, pwd=RCON_PASS):
             resp = mcr.command(cmd)
             return resp
     except MCRconException as e:
-        return color_text(f"RCON Error: {e}", AnsiCode.RED, bold=True)
+        return utils.color_text(f"RCON Error: {e}", utils.AnsiCode.RED, bold=True)
 
 
 def mc_to_ansi(text: str):
@@ -268,16 +249,17 @@ class ServerLogFile:
         return errors
 
 
-def copy_datapack(dpacks_dir: Path, dp_path: Path):
+def copy_datapack(dpacks_dir: Path, dp_path: Path,):
     if dp_path.is_file():
         dest = dpacks_dir / dp_path.name
         shutil.copy2(dp_path, dest)
-        return color_text(f"Copied datapack file: {dp_path.name}", AnsiCode.GREEN)
-    if dp_path.is_dir():
+        utils.print_success(f"Copied datapack file: {dp_path.name}")
+    elif dp_path.is_dir():
         dest = dpacks_dir / dp_path.name
         shutil.copytree(dp_path, dest)
-        return color_text(f"Copied datapack folder: {dp_path.name}", AnsiCode.GREEN)
-    return color_text(f"Failed to copy datapack: {dp_path.name}", AnsiCode.RED)
+        utils.print_success(f"Copied datapack folder: {dp_path.name}")
+    else:
+        utils.print_error(f"Failed to copy datapack: {dp_path.name}")
 
 
 def main():
@@ -288,11 +270,11 @@ def main():
     dp_path = Path(args.datapack).resolve()
 
     if not dp_path.exists():
-        print_error(f"Error: {dp_path} does not exist")
+        utils.print_error(f"Error: {dp_path} does not exist")
         exit(1)
     
     test_dir = Path(tempfile.mkdtemp(prefix="test-"))
-    print_info(f"Test directory: {test_dir}")
+    utils.print_info(f"Test directory: {test_dir}")
     
     sv_proc = None
     
@@ -320,7 +302,7 @@ def main():
         dpacks_dir = world_dir / "datapacks"
         dpacks_dir.mkdir(exist_ok=True)
         
-        print(copy_datapack(dpacks_dir, dp_path))
+        copy_datapack(dpacks_dir, dp_path)
         
         with open("server.log", "w") as f:
             sv_proc = subprocess.Popen(
@@ -334,28 +316,28 @@ def main():
         logfile = ServerLogFile("server.log")
 
         if not wait_for_rcon(RCON_HOST, RCON_PORT, timeout=45):
-            print_error("\nServer startup timeout")
-            print_warning("Last 10 lines of server.log:")
+            utils.print_error("\nServer startup timeout")
+            utils.print_warning("Last 10 lines of server.log:")
             lines = logfile.get_text().splitlines()
             for line in lines[-10:]:
-                print(f"  {AnsiCode.DIM}{line.strip()}{AnsiCode.RESET}")
+                print(f"  {utils.AnsiCode.DIM}{line.strip()}{utils.AnsiCode.RESET}")
             exit(1)
         
         time.sleep(2)
-        print_success("Server is ready!")
+        utils.print_success("Server is ready!")
         logfile.get_text()
 
         def cli(prompt: str, line: str):
             if not line.startswith("/"):
-                print(f"  {AnsiCode.DIM}{line}{AnsiCode.RESET}")
+                print(f"  {utils.AnsiCode.DIM}{line}{utils.AnsiCode.RESET}")
                 return
 
             if line == "/stop":
-                print_warning("  Type Ctrl+C to exit the program")
+                utils.print_warning("  Type Ctrl+C to exit the program")
                 return
 
             if line == "/reload":
-                print("  " + copy_datapack(dpacks_dir, dp_path))
+                copy_datapack(dpacks_dir, dp_path)
 
             resp = send_cmd(line)
             if resp:
@@ -364,48 +346,48 @@ def main():
                     for resp_line in colored_resp.splitlines():
                         print(f"  {resp_line}")
             else:
-                print(f"  {AnsiCode.DIM}Command executed with no output{AnsiCode.RESET}")
+                print(f"  {utils.AnsiCode.DIM}Command executed with no output{utils.AnsiCode.RESET}")
 
             if line == "/reload":
                 errors = logfile.find_reload_errors()
                 if errors:
-                    print_warning("  Error detected in Minecraft log file:")
+                    utils.print_warning("  Error detected in Minecraft log file:")
                     for error in errors:
-                        print(f"    {AnsiCode.BG_RED}{error}{AnsiCode.RESET}")
+                        print(f"    {utils.AnsiCode.BGRED}{error}{utils.AnsiCode.RESET}")
 
         print()
-        intro = color_text(
+        intro = utils.color_text(
             "Minecraft REPL (Read-Eval-Print Loop) module "
             "for datapack testing, type Ctrl+C to exit the program",
-            AnsiCode.MAGENTA, bold=True
+            utils.AnsiCode.MAGENTA, bold=True
         )
-        REPL(cli, False).cmdloop(intro)
+        repl.REPL(cli, False).cmdloop(intro)
         
     except KeyboardInterrupt:
-        print_warning("\nInterrupted")
+        utils.print_warning("\nInterrupted")
     except Exception as e:
-        print_error(f"\nUnexpected error: {e}")
+        utils.print_error(f"\nUnexpected error: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        print_info("\nCleaning up temporary files...")
+        utils.print_info("\nCleaning up temporary files...")
         if sv_proc:
             try:
                 send_cmd("/stop")
                 sv_proc.wait(timeout=10)
-                print_success("Server stopped gracefully")
+                utils.print_success("Server stopped gracefully")
             except:
                 sv_proc.terminate()
                 sv_proc.wait(timeout=5)
-                print_warning("Server was force-terminated")
+                utils.print_warning("Server was force-terminated")
         
         os.chdir(Path.home())
         try:
             shutil.rmtree(test_dir, ignore_errors=True)
-            print_success(f"Removed test directory: {test_dir}")
+            utils.print_success(f"Removed test directory: {test_dir}")
         except Exception as e:
-            print_warning(f"Could not fully remove {test_dir}: {e}")
-        print_success("Done!")
+            utils.print_warning(f"Could not fully remove {test_dir}: {e}")
+        utils.print_success("Done!")
 
 
 if __name__ == "__main__":

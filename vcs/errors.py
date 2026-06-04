@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import re
-import os
 from dataclasses import dataclass
 from itertools import count
-
-from vcs.ansi import AnsiCode
 
 
 @dataclass(frozen=True)
@@ -330,86 +326,3 @@ class UnexpectedKwarg(SemanticError):
             return
         self.message = f"'{func_name}' got unexpected keyword arguments: '{", ".join(kwargs)}'"
 
-
-def dump_error(error: CompilerError, fancy=True):
-    try:
-        console_width = os.get_terminal_size().columns
-    except OSError:
-        console_width = 0  # Only for type checker
-        fancy = False
-
-    info = error.info
-    filename, lineno, column, end_lineno, end_column = (
-        info.filename, info.lineno, info.column, info.end_lineno, info.end_column
-    )
-    title = "warning" if error.warning else "error"
-    errcode, message = error.code, error.message
-    errcode_digits = len(str(counter() - 1))
-    codestr = f"CE{errcode:0>{errcode_digits}}"
-
-    if not fancy:
-        return f"[{title}]: {filename}:{lineno},{column}-{end_lineno},{end_column}: {message} ({codestr})"
-
-    highlight_theme =  AnsiCode.CURLY_U + (AnsiCode.YELLOW if error.warning else AnsiCode.RED)
-    descr_color = AnsiCode.GREEN if error.warning else AnsiCode.PURPLE
-
-    lines = info.source.split("\n")
-    total_lines = len(lines)
-    lineno_digits = len(str(total_lines))
-    error_lines = lines[lineno - 1:end_lineno]
-    first_line = error_lines[0]
-    last_line = error_lines[-1]
-
-    # Highlight error info in source code
-    if len(error_lines) == 1:
-        error_lines[0] = (
-            f"{AnsiCode.RESET}{AnsiCode.CODE_BACKGROUND}{first_line[:column]}"
-            f"{highlight_theme}{first_line[column:end_column]}"
-            f"{AnsiCode.RESET}{AnsiCode.CODE_BACKGROUND}{first_line[end_column:]}"
-        )
-    else:
-        # Multi-line error: highlight first line
-        error_lines[0] = (
-            f"{AnsiCode.RESET}{AnsiCode.CODE_BACKGROUND}{first_line[:column]}"
-            f"{highlight_theme}{first_line[column:] or " "}"
-            f"{AnsiCode.RESET}{AnsiCode.CODE_BACKGROUND}"
-        )
-
-        # Newline / endmarker
-        if end_column == 0 and (
-            len(error_lines) == 2 or all(line == "" for line in error_lines[1:-1])
-        ):
-            error_lines = [error_lines[0]]
-        else:
-            # Highlight last line
-            error_lines[-1] = (
-                f"{highlight_theme}{last_line[:end_column]}"
-                f"{AnsiCode.RESET}{AnsiCode.CODE_BACKGROUND}{last_line[end_column:]}"
-            )
-
-        # Highlight middle lines entirely
-        for i, line in enumerate(error_lines[1:-1], start=1):
-            error_lines[i] = AnsiCode.CURLY_U + AnsiCode.RED + line + AnsiCode.RESET
-
-    # Format each error line with line numbers
-    for i, line in enumerate(error_lines):
-        prefix = (
-            f"{AnsiCode.CODE_BACKGROUND}{AnsiCode.GRAY} {lineno+i: >{lineno_digits}}"
-            f" │ {AnsiCode.WHITE}"
-        )
-        # Calculate padding to fill console width
-        real_len = len(re.compile(r'\x1b\[[0-9;]*m').sub("", line))  # Length without ansi escapes
-        padding = max(0, console_width - 4 - lineno_digits - real_len)
-        postfix = AnsiCode.CODE_BACKGROUND + " " * padding
-        error_lines[i] = f"{prefix}{line}{postfix}{AnsiCode.RESET}"
-
-    # Print error message with info and formatted source
-    output = (
-        f"{AnsiCode.GRAY}{filename}{AnsiCode.RESET}:{AnsiCode.BLUE}{lineno}"
-        f"{AnsiCode.RESET}:{AnsiCode.BLUE}{column}{AnsiCode.RESET}-{AnsiCode.BLUE}"
-        f"{end_lineno}{AnsiCode.RESET}:{AnsiCode.BLUE}{end_column}{AnsiCode.WHITE}: "
-        f"{descr_color}{AnsiCode.BOLD}{title}{AnsiCode.RESET}: {descr_color}{message} "
-        f"{AnsiCode.YELLOW}({codestr}){AnsiCode.RESET}\n"
-    )
-    output += "\n".join(error_lines)
-    return output

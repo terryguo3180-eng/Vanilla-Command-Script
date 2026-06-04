@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from vcs.lexer import TokenInfo
+from vcs import lexer as lex
 
 if TYPE_CHECKING:
-    from vcs.semantic import FunctionTypeInfo, TypeInfo, Scope
+    from vcs import semantic as sem
 
 
 class ASTNode:
@@ -127,14 +127,14 @@ class Module(ASTNode):
         super().__init__(**loc)
         self.body = body
 
-    def annotate_scope(self, scope: Scope):
+    def annotate_scope(self, scope: sem.Scope):
         self.scope = scope
 
 
 class Comment(ASTNode):
     __slots__ = ("token",)
 
-    def __init__(self, token: TokenInfo, **loc):
+    def __init__(self, token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.token = token
 
@@ -158,13 +158,13 @@ class FunctionDeclaration(ASTNode):
 
     def __init__(
         self,
-        name_token: TokenInfo,
-        lparen_token: TokenInfo,
+        name_token: lex.TokenInfo,
+        lparen_token: lex.TokenInfo,
         params: list[Parameter],
-        rparen_token: TokenInfo,
-        arrow_token: TokenInfo | None,
+        rparen_token: lex.TokenInfo,
+        arrow_token: lex.TokenInfo | None,
         return_type: Type | None,
-        colon_token: TokenInfo | None,
+        colon_token: lex.TokenInfo | None,
         body: Statement | None,
         **loc,
     ):
@@ -178,10 +178,10 @@ class FunctionDeclaration(ASTNode):
         self.colon_token = colon_token
         self.body = body
 
-    def annotate_signature(self, signature: FunctionTypeInfo):
+    def annotate_signature(self, signature: sem.FunctionTypeInfo):
         self.signature = signature
 
-    def annotate_scope(self, scope: Scope):
+    def annotate_scope(self, scope: sem.Scope):
         self.scope = scope
 
 
@@ -190,10 +190,10 @@ class Parameter(ASTNode):
 
     def __init__(
         self,
-        name_token: TokenInfo,
-        colon_token: TokenInfo | None,
+        name_token: lex.TokenInfo,
+        colon_token: lex.TokenInfo | None,
         type: Type,
-        equal_token: TokenInfo | None,
+        equal_token: lex.TokenInfo | None,
         default: Expression | None,
         **loc,
     ):
@@ -221,7 +221,7 @@ class Block(Statement):
         super().__init__(**loc)
         self.body = body
     
-    def annotate_scope(self, scope: Scope):
+    def annotate_scope(self, scope: sem.Scope):
         self.scope = scope
 
 
@@ -244,10 +244,10 @@ class VariableDeclarationStatement(Statement):
 
     def __init__(
         self,
-        name_token: TokenInfo,
-        colon_token: TokenInfo | None,
+        name_token: lex.TokenInfo,
+        colon_token: lex.TokenInfo | None,
         type: Type,
-        equal_token: TokenInfo | None,
+        equal_token: lex.TokenInfo | None,
         value: Expression | None,
         **loc,
     ):
@@ -265,7 +265,7 @@ class AssignStatement(Statement):
     def __init__(
         self,
         target: LeftExpression,
-        equal_token: TokenInfo,
+        equal_token: lex.TokenInfo,
         value: Expression,
         **loc,
     ):
@@ -294,7 +294,7 @@ class AugAssignStatement(Statement):
 class ReturnStatement(Statement):
     __slots__ = ("return_token", "value")
 
-    def __init__(self, return_token: TokenInfo, value: Expression | None, **loc):
+    def __init__(self, return_token: lex.TokenInfo, value: Expression | None, **loc):
         super().__init__(**loc)
         self.return_token = return_token
         self.value = value
@@ -303,7 +303,7 @@ class ReturnStatement(Statement):
 class BreakStatement(Statement):
     __slots__ = ("break_token",)
 
-    def __init__(self, break_token: TokenInfo, **loc):
+    def __init__(self, break_token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.break_token = break_token
 
@@ -311,7 +311,7 @@ class BreakStatement(Statement):
 class ContinueStatement(Statement):
     __slots__ = ("continue_token",)
 
-    def __init__(self, continue_token: TokenInfo, **loc):
+    def __init__(self, continue_token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.continue_token = continue_token
 
@@ -319,7 +319,7 @@ class ContinueStatement(Statement):
 class PassStatement(Statement):
     __slots__ = ("pass_token",)
 
-    def __init__(self, pass_token: TokenInfo, **loc):
+    def __init__(self, pass_token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.pass_token = pass_token
 
@@ -337,12 +337,12 @@ class IfStatement(Statement):
 
     def __init__(
         self,
-        if_token: TokenInfo,
+        if_token: lex.TokenInfo,
         test: Expression,
-        colon_token: TokenInfo | None,
+        colon_token: lex.TokenInfo | None,
         body: Statement,
-        else_token: TokenInfo | None,
-        else_colon_token: TokenInfo | None,
+        else_token: lex.TokenInfo | None,
+        else_colon_token: lex.TokenInfo | None,
         orelse: Statement | None,
         **loc,
     ):
@@ -361,9 +361,9 @@ class WhileStatement(Statement):
 
     def __init__(
         self,
-        while_token: TokenInfo,
+        while_token: lex.TokenInfo,
         test: Expression,
-        colon_token: TokenInfo | None,
+        colon_token: lex.TokenInfo | None,
         body: Statement,
         **loc,
     ):
@@ -392,16 +392,16 @@ class ForStatement(Statement):
 
     def __init__(
         self,
-        for_token: TokenInfo,
+        for_token: lex.TokenInfo,
         init_stmt: Statement,
-        semicolon_token1: TokenInfo,
+        semicolon_token1: lex.TokenInfo,
         test: Expression,
-        semicolon_token2: TokenInfo,
+        semicolon_token2: lex.TokenInfo,
         end_stmt: Statement,
-        colon_token: TokenInfo,
+        colon_token: lex.TokenInfo,
         body: Statement,
-        lparen_token: TokenInfo | None,
-        rparen_token: TokenInfo | None,
+        lparen_token: lex.TokenInfo | None,
+        rparen_token: lex.TokenInfo | None,
         **loc,
     ):
         super().__init__(**loc)
@@ -416,7 +416,7 @@ class ForStatement(Statement):
         self.colon_token = colon_token
         self.body = body
 
-    def annotate_scope(self, scope: Scope):
+    def annotate_scope(self, scope: sem.Scope):
         self.scope = scope
 
 
@@ -426,7 +426,7 @@ class ForStatement(Statement):
 class Expression(ASTNode):
     __slots__ = ("type_info",)
 
-    def annotate_type(self, type: TypeInfo):
+    def annotate_type(self, type: sem.TypeInfo):
         self.type_info = type
 
 
@@ -439,9 +439,9 @@ class IfExpression(Expression):
     def __init__(
         self,
         test: Expression,
-        if_token: TokenInfo,
+        if_token: lex.TokenInfo,
         body: Expression,
-        else_token: TokenInfo,
+        else_token: lex.TokenInfo,
         orelse: Expression,
         **loc,
     ):
@@ -478,9 +478,9 @@ class CallExpression(Expression):
     def __init__(
         self,
         callee: Expression,
-        lparen_token: TokenInfo | None,
+        lparen_token: lex.TokenInfo | None,
         args: list[Argument],
-        rparen_token: TokenInfo | None,
+        rparen_token: lex.TokenInfo | None,
         **loc,
     ):
         super().__init__(**loc)
@@ -505,7 +505,7 @@ class KeywordArgument(Argument):
     __slots__ = ("name_token", "equal_token")
 
     def __init__(
-        self, name_token: TokenInfo, equal_token: TokenInfo, value: Expression, **loc
+        self, name_token: lex.TokenInfo, equal_token: lex.TokenInfo, value: Expression, **loc
     ):
         super().__init__(**loc)
         self.name_token = name_token
@@ -516,7 +516,7 @@ class KeywordArgument(Argument):
 class Constant(Expression):
     __slots__ = ("value",)
 
-    def __init__(self, value: TokenInfo, **loc):
+    def __init__(self, value: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.value = value
 
@@ -524,7 +524,7 @@ class Constant(Expression):
 class Identifier(LeftExpression):
     __slots__ = ("token", "context")
 
-    def __init__(self, token: TokenInfo, context: Context, **loc):
+    def __init__(self, token: lex.TokenInfo, context: Context, **loc):
         super().__init__(**loc)
         self.token = token
         self.context = context
@@ -538,12 +538,13 @@ class Load(Context): ...
 class Operator(ASTNode):
     __slots__ = ("token",)
 
-    def __init__(self, token: TokenInfo, **loc):
+    def __init__(self, token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.token = token
 
 
 class BinaryOp(Operator): ...
+
 class ArithmeticOp(BinaryOp): ...
 class AddOp(ArithmeticOp): ...
 class SubOp(ArithmeticOp): ...
@@ -551,13 +552,16 @@ class MulOp(ArithmeticOp): ...
 class DivOp(ArithmeticOp): ...
 class FloorDivOp(ArithmeticOp): ...
 class ModOp(ArithmeticOp): ...
+
 class CompareOp(BinaryOp): ...
+
 class EqOp(CompareOp): ...
 class NotEqOp(CompareOp): ...
 class GtOp(CompareOp): ...
 class LtOp(CompareOp): ...
 class GtEOp(CompareOp): ...
 class LtEOp(CompareOp): ...
+
 class BinaryBoolOp(BinaryOp): ...
 class OrOp(BinaryBoolOp): ...
 class AndOp(BinaryBoolOp): ...
@@ -571,7 +575,7 @@ class NotOp(UnaryOp): ...
 class Type(ASTNode):
     __slots__ = ("token",)
 
-    def __init__(self, token: TokenInfo, **loc):
+    def __init__(self, token: lex.TokenInfo, **loc):
         super().__init__(**loc)
         self.token = token
 

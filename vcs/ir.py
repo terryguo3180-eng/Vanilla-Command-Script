@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
+
+from vcs import utils
 
 
 class Type: ...
@@ -94,6 +97,8 @@ class IntBinaryInstr(Instruction):
     rhs: Value
     target: NamedValue
 
+    opname: ClassVar[str]
+
     def __post_init__(self):
         if not (
             isinstance(self.lhs.type, IntType)
@@ -101,31 +106,29 @@ class IntBinaryInstr(Instruction):
             and isinstance(self.target.type, IntType)
         ):
             raise ValueError(self)
+        
+    def __str__(self):
+        return f"{self.target} = {self.opname} {self.lhs}, {self.rhs}"
 
 
 class IAdd(IntBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = iadd {self.lhs}, {self.rhs}"
+    opname = "iadd"
 
 
 class ISub(IntBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = isub {self.lhs}, {self.rhs}"
+    opname = "isub"
 
 
 class IMul(IntBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = imul {self.lhs}, {self.rhs}"
+    opname = "imul"
 
 
 class IDiv(IntBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = idiv {self.lhs}, {self.rhs}"
+    opname = "idiv"
 
 
 class IMod(IntBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = imod {self.lhs}, {self.rhs}"
+    opname = "imod"
 
 
 @dataclass
@@ -134,6 +137,8 @@ class FloatBinaryInstr(Instruction):
     rhs: Value
     target: NamedValue
 
+    opname: ClassVar[str]
+
     def __post_init__(self):
         if not (
             isinstance(self.lhs.type, FloatType)
@@ -141,31 +146,29 @@ class FloatBinaryInstr(Instruction):
             and isinstance(self.target.type, FloatType)
         ):
             raise ValueError(self)
+        
+    def __str__(self):
+        return f"{self.target} = {self.opname} {self.lhs}, {self.rhs}"
 
 
 class FAdd(FloatBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = fadd {self.lhs}, {self.rhs}"
+    opname = "fadd"
 
 
 class FSub(FloatBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = fsub {self.lhs}, {self.rhs}"
+    opname = "fsub"
 
 
 class FMul(FloatBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = fmul {self.lhs}, {self.rhs}"
+    opname = "fmul"
 
 
 class FDiv(FloatBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = fdiv {self.lhs}, {self.rhs}"
+    opname = "fdiv"
 
 
 class FMod(FloatBinaryInstr):
-    def __str__(self):
-        return f"{self.target} = fmod {self.lhs}, {self.rhs}"
+    opname = "fmod"
 
 
 @dataclass
@@ -214,40 +217,40 @@ class Or(IntBinaryInstr):
 
 @dataclass
 class ICmp(Instruction):
-    lhs: Value
-    rhs: Value
+    left: Value
+    right: Value
     target: NamedValue
-    op: str  # 'eq', 'ne', 'lt', 'gt', 'le', 'ge'
+    op: utils.CompareOp
 
     def __post_init__(self):
         if not (
-            isinstance(self.lhs.type, IntType)
-            and isinstance(self.rhs.type, IntType)
+            isinstance(self.left.type, IntType)
+            and isinstance(self.right.type, IntType)
             and isinstance(self.target.type, IntType)
         ):
             raise ValueError(self)
 
     def __str__(self):
-        return f"{self.target} = icmp {self.op} {self.lhs}, {self.rhs}"
+        return f"{self.target} = icmp {self.op} {self.left}, {self.right}"
 
 
 @dataclass
 class FCmp(Instruction):
-    lhs: Value
-    rhs: Value
+    left: Value
+    right: Value
     target: NamedValue
-    op: str  # 'eq', 'ne', 'lt', 'gt', 'le', 'ge'
+    op: utils.CompareOp
 
     def __post_init__(self):
         if not (
-            isinstance(self.lhs.type, FloatType)
-            and isinstance(self.rhs.type, FloatType)
+            isinstance(self.left.type, FloatType)
+            and isinstance(self.right.type, FloatType)
             and isinstance(self.target.type, IntType)
         ):
             raise ValueError(self)
 
     def __str__(self):
-        return f"{self.target} = fcmp {self.op} {self.lhs}, {self.rhs}"
+        return f"{self.target} = fcmp {self.op} {self.left}, {self.right}"
 
 
 @dataclass

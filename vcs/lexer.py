@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Generator
 
-from vcs.errors import *
+from vcs import errors as err
 
 
 # Small helpers to build regex components
@@ -137,7 +137,7 @@ class Lexer:
         raw: bool  # Whether this is a raw string (\"...")
 
 
-    def __init__(self, source: str, filename: str, errors: ErrorCollector, tabsize=4):
+    def __init__(self, source: str, filename: str, errors: err.ErrorCollector, tabsize=4):
         # Normalize the input text: ensure single trailing newline, expand tabs, remove formfeeds
         source = (source.rstrip("\n") + "\n").expandtabs(tabsize).replace("\f", " ")
 
@@ -180,11 +180,11 @@ class Lexer:
         end_lineno, end_column = self._calculate_lineno_column(end_pos)
 
         # Create error information with source location details
-        return ErrorInfo(self.filename, start_lineno, start_column, self.source, end_lineno, end_column)
+        return err.ErrorInfo(self.filename, start_lineno, start_column, self.source, end_lineno, end_column)
 
     def report(
         self,
-        error: CompilerError,
+        error: err.CompilerError,
     ) -> None:
         """Report an error/warning to the error collector"""
         self.errors.add(error)
@@ -367,7 +367,7 @@ class Lexer:
         pos = self._pos
         if _match := self._match(LexerConfig.re_Whitespace):
             string = _match.group(0).lstrip()
-            self.report(UnexpectedIndent(self.get_error_info(len(string), pos)))
+            self.report(err.UnexpectedIndent(self.get_error_info(len(string), pos)))
 
         # Tokenization loop
         while not self._at_end():
@@ -434,7 +434,7 @@ class Lexer:
         elif match := self._match(LexerConfig.re_InvalidLineCont):
             # Invalid sequence after a trailing backslash
             length = len(match.group(0)) - 1
-            self.report(CharAfterLineContinuation(self.get_error_info(length, spos + 1)))
+            self.report(err.CharAfterLineContinuation(self.get_error_info(length, spos + 1)))
 
         elif self._match(LexerConfig.re_Whitespace):
             # Ignore whitespace
@@ -494,7 +494,7 @@ class Lexer:
                 self._buffer.append("\n")
             else:
                 # Single-line strings cannot contain newlines
-                self.report(UnterminatedString(self.get_error_info(len(quote), quote_rec.pos)))
+                self.report(err.UnterminatedString(self.get_error_info(len(quote), quote_rec.pos)))
 
         else:
             # Regular character inside string content: buffer it
@@ -537,20 +537,20 @@ class Lexer:
 
                 # Validate Unicode code point range
                 if charid >= 0x110000:
-                    self.report(InvalidHexEscape(self.get_error_info(length + 2, spos), True))
+                    self.report(err.InvalidHexEscape(self.get_error_info(length + 2, spos), True))
                     self._buffer.append(f"\\{ch}" + match.group(0))
                 else:
                     self._buffer.append(chr(int(match.group(0), 16)))
             else:
                 # Invalid hex digits
-                self.report(InvalidHexEscape(self.get_error_info(length + 2, spos), True))
+                self.report(err.InvalidHexEscape(self.get_error_info(length + 2, spos), True))
                 self._buffer.append(f"\\{ch}")
             return
         
         # Unknown escape sequence: add a warning and preserve backslash
         if self._at_end():
-            self.report(UnexpectedEOF(self.get_error_info(0)))
-        self.report(InvalidEscapeSequence(self.get_error_info(2, spos), self._nextchar, True))
+            self.report(err.UnexpectedEOF(self.get_error_info(0)))
+        self.report(err.InvalidEscapeSequence(self.get_error_info(2, spos), self._nextchar, True))
         self._buffer.append("\\")
 
     def _handle_newline(self, string: str) -> Generator[TokenInfo, None, None]:
@@ -591,7 +591,7 @@ class Lexer:
         while column < indents[-1]:
             if column not in indents:
                 # Indentation doesn't match any previous level
-                self.report(MismatchedUnindent(self.get_error_info(column, spos)))
+                self.report(err.MismatchedUnindent(self.get_error_info(column, spos)))
             indents.pop()
             yield self._maketoken(TokenType.DEDENT, "")
 
@@ -610,7 +610,7 @@ class Lexer:
         bracket_rec = self._pop_bracket_record()
         if bracket_rec is None or string != LexerConfig.brackets[bracket_rec.bracket]:
             # Mismatched bracket error
-            self.report(MismatchedBracket(self.get_error_info(1), string))
+            self.report(err.MismatchedBracket(self.get_error_info(1), string))
             return
         
         # Check if this closes an interpolation block
@@ -623,21 +623,21 @@ class Lexer:
     def _handle_eof(self) -> Generator[TokenInfo, None, None]:
         # Check for line continuation
         if self._line_continuation:
-            self.report(UnexpectedEOF(self.get_error_info(0)))
+            self.report(err.UnexpectedEOF(self.get_error_info(0)))
         
         # Check for unclosed strings
         if self._current_state() in [self.LexerState.INTERPOLATION, self.LexerState.STRING]:
             for quote_rec in self._quote_stack:
                 quote = quote_rec.quote
                 pos = quote_rec.pos
-                self.report(UnterminatedString(self.get_error_info(len(quote), pos)))
+                self.report(err.UnterminatedString(self.get_error_info(len(quote), pos)))
 
         # Check for unclosed brackets
         if self._bracket_stack:
             for bracket_rec in self._bracket_stack:
                 bracket = bracket_rec.bracket
                 pos = bracket_rec.pos
-                self.report(UnclosedBracket(self.get_error_info(len(bracket), pos), bracket))
+                self.report(err.UnclosedBracket(self.get_error_info(len(bracket), pos), bracket))
 
         # Ensure file ends with a newline token
         if not self._last_token_was_newline:
@@ -655,14 +655,15 @@ class Lexer:
     def _handle_error(self) -> Generator[TokenInfo, None, None]:
         # Handle unknown or invalid characters
         error_char = self._nextchar
-        self.report(InvalidCharacter(self.get_error_info(1), error_char))
+        self.report(err.InvalidCharacter(self.get_error_info(1), error_char))
         self._advance()
         yield self._maketoken(TokenType.ERRORTOKEN, error_char)
 
 
 def main():
     import argparse
-    import sys
+    
+    from vcs import utils
 
     # Parse the arguments and options
     argparser = argparse.ArgumentParser(prog="python -m vcs.lexer")
@@ -680,7 +681,7 @@ def main():
     tabsize = args.tabsize
 
     def cli(filename: str, source: str):
-        errors = ErrorCollector()
+        errors = err.ErrorCollector()
         lexer = Lexer(source, filename, errors, tabsize)
 
         # Output the tokenization
@@ -691,8 +692,8 @@ def main():
         if not errors.ok():
             errors.sort()
             for issue in errors.issues:
-                print(dump_error(issue), file=sys.stderr)
-
+                utils.print_compiler_error(issue)
+                
     if not filename:
         from .repl import REPL
         REPL(cli).cmdloop("vcs.lexer REPL (Read-Eval-Print Loop) module, type Ctrl+C to exit the program")

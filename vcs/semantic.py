@@ -3,9 +3,10 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import Callable, overload, cast
 
-from vcs.astnodes import *
-from vcs.errors import *
-from vcs.lexer import TokenType
+from vcs import astnodes as ast
+from vcs import errors as err
+from vcs import lexer as lex
+from vcs import utils
 
 
 class TypeInfo:
@@ -14,7 +15,8 @@ class TypeInfo:
     Represents the type of a variable, expression, or function return value.
     """
 
-class VoidTypeInfo(TypeInfo):
+
+class VoidTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents the void type, used for functions that return no value.
     """
@@ -26,7 +28,7 @@ class VoidTypeInfo(TypeInfo):
         return isinstance(other, VoidTypeInfo)
 
 
-class IntTypeInfo(TypeInfo):
+class IntTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents the integer type (e.g., 42, -17, 0).
     """
@@ -38,7 +40,7 @@ class IntTypeInfo(TypeInfo):
         return isinstance(other, IntTypeInfo)
 
 
-class BoolTypeInfo(TypeInfo):
+class BoolTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents the boolean type (true/false).
     """
@@ -50,7 +52,7 @@ class BoolTypeInfo(TypeInfo):
         return isinstance(other, BoolTypeInfo)
 
 
-class FloatTypeInfo(TypeInfo):
+class FloatTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents the floating-point type (e.g., 3.14, -2.5).
     """
@@ -62,7 +64,7 @@ class FloatTypeInfo(TypeInfo):
         return isinstance(other, FloatTypeInfo)
 
 
-class ErrorTypeInfo(TypeInfo):
+class ErrorTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents an error type, used when type checking fails.
     Propagates through the AST to avoid cascading errors.
@@ -75,10 +77,14 @@ class ParameterInfo:
     type, and optional default value expression.
     """
     
-    def __init__(self, name: str, type_info: TypeInfo, default_node: Expression | None = None):
+    def __init__(
+        self, name: str,
+        type_info: TypeInfo,
+        default_node: ast.Expression | None = None
+    ):
         self.name = name
         self.type_info = type_info
-        self.default_node = default_node  # Expression for default value, if any
+        self.default_node = default_node
 
 
 class FunctionTypeInfo(TypeInfo):
@@ -86,7 +92,9 @@ class FunctionTypeInfo(TypeInfo):
     Represents the type signature of a function including parameters and return type.
     """
     
-    def __init__(self, param_infos: list[ParameterInfo], return_type: TypeInfo):
+    def __init__(
+        self, param_infos: list[ParameterInfo], return_type: TypeInfo
+    ):
         self.param_infos = param_infos
         self.return_type = return_type
 
@@ -202,15 +210,15 @@ class SymbolTable:
         self.declare_var(name, type_info)
 
 
-class SemanticAnalyzer(ASTNodeVisitor):
+class SemanticAnalyzer(ast.ASTNodeVisitor):
     """
     Performs semantic analysis and type checking on the AST.
     Verifies type correctness, symbol resolution, and semantic rules.
     """
     
     def __init__(
-        self, errors: ErrorCollector,
-        get_error_info_on: Callable[[ASTNode | TokenInfo | None], ErrorInfo],
+        self, errors: err.ErrorCollector,
+        get_error_info_on: Callable[[ast.ASTNode | lex.TokenInfo | None], err.ErrorInfo],
     ):
         self.errors = errors
         self.get_error_info_on = get_error_info_on  # Factory for error location info
@@ -221,24 +229,24 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self.inside_loop = False  # Track if we're inside a loop (for break/continue)
 
         # Map call expressions to their argument bindings for later analysis
-        self.call_param_bindings: dict[CallExpression, dict[str, Expression]] = {}
+        self.call_param_bindings: dict[ast.CallExpression, dict[str, ast.Expression]] = {}
 
-    def report(self, error: CompilerError):
+    def report(self, error: err.CompilerError):
         """Report a compilation error to the error collector"""
         self.errors.add(error)
 
     @overload
-    def visit(self, node: Module) -> None: ...
+    def visit(self, node: ast.Module) -> None: ...
     @overload
-    def visit(self, node: FunctionDeclaration) -> None: ...
+    def visit(self, node: ast.FunctionDeclaration) -> None: ...
     @overload
-    def visit(self, node: Comment) -> None: ...
+    def visit(self, node: ast.Comment) -> None: ...
     @overload
-    def visit(self, node: Statement) -> None: ...
+    def visit(self, node: ast.Statement) -> None: ...
     @overload
-    def visit(self, node: Expression) -> None: ...
+    def visit(self, node: ast.Expression) -> None: ...
     @overload
-    def visit(self, node: Type) -> TypeInfo: ...
+    def visit(self, node: ast.Type) -> TypeInfo: ...
 
     def visit(self, node):
         return super().visit(node)
@@ -255,7 +263,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         """Register a variable in the symbol table"""
         self.symtab.declare_var(name, type)
 
-    def declare_func(self, name: str, params: list[Parameter], return_type: TypeInfo):
+    def declare_func(self, name: str, params: list[ast.Parameter], return_type: TypeInfo):
         """Declare a function in the symbol table with its parameter info"""
         param_infos = []
         for param in params:
@@ -267,7 +275,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         signature = FunctionTypeInfo(param_infos, return_type)
         self.symtab.declare_func(name, signature)
 
-    def declare_var(self, name: str, declared_type: TypeInfo, value: Expression | None):
+    def declare_var(self, name: str, declared_type: TypeInfo, value: ast.Expression | None):
         """Declare a variable and optionally check its initializer type"""
         self.register_name(name, declared_type)
         
@@ -281,7 +289,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
             
             # Check that initializer type matches declared type
             if value.type_info != declared_type:
-                self.report(UnassignableType(
+                self.report(err.UnassignableType(
                     self.get_error_info_on(value),
                     str(value.type_info), str(declared_type)
                 ))
@@ -293,7 +301,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
             return sym.type_info
         return None
 
-    def check_assignment(self, target: LeftExpression, value: Expression) -> bool:
+    def check_assignment(self, target: ast.LeftExpression, value: ast.Expression) -> bool:
         # Check that a value can be assigned to a target (type compatibility)
         self.visit(target)
         self.visit(value)
@@ -307,21 +315,21 @@ class SemanticAnalyzer(ASTNodeVisitor):
         if isinstance(value.type_info, IntTypeInfo) and isinstance(target.type_info, FloatTypeInfo):
             return True
 
-        self.report(UnassignableType(
+        self.report(err.UnassignableType(
             self.get_error_info_on(value),
             str(value.type_info), str(target.type_info)
         ))
         return False
 
 
-    def visit_Module(self, node: Module):
+    def visit_Module(self, node: ast.Module):
         # Entry point
         scope = self.enter_scope()
         node.annotate_scope(scope)
 
         # First pass: collect all function signatures
         for sub in node.body:
-            if isinstance(sub, FunctionDeclaration):
+            if isinstance(sub, ast.FunctionDeclaration):
                 return_type = (
                     self.visit(sub.return_type)
                     if sub.return_type is not None
@@ -329,7 +337,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
                 )
                 name = sub.name_token.value
                 if self.symtab.lookup_func_signature(name) is not None:
-                    self.report(FunctionDeclared(
+                    self.report(err.FunctionDeclared(
                         self.get_error_info_on(sub.name_token), name
                     ))
                 self.declare_func(name, sub.params, return_type)
@@ -340,7 +348,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
     
         self.exit_scope()
 
-    def visit_FunctionDeclaration(self, node: FunctionDeclaration):
+    def visit_FunctionDeclaration(self, node: ast.FunctionDeclaration):
         # Create scope, declare parameters, and type-check the function body
         scope = self.enter_scope()
         node.annotate_scope(scope)
@@ -361,10 +369,10 @@ class SemanticAnalyzer(ASTNodeVisitor):
 
         self.exit_scope()
     
-    def visit_Comment(self, node: Comment):
+    def visit_Comment(self, node: ast.Comment):
         pass
 
-    def visit_Block(self, node: Block):
+    def visit_Block(self, node: ast.Block):
         # Process a block statement as a new lexical scope
         scope = self.enter_scope()
         node.annotate_scope(scope)
@@ -372,25 +380,25 @@ class SemanticAnalyzer(ASTNodeVisitor):
             self.visit(stmt)
         self.exit_scope()
     
-    def visit_ExpressionStatement(self, node: ExpressionStatement):
+    def visit_ExpressionStatement(self, node: ast.ExpressionStatement):
         # Process an expression statement (expression used as a statement)
         self.visit(node.expression)
 
-    def visit_VariableDeclarationStatement(self, node: VariableDeclarationStatement):
+    def visit_VariableDeclarationStatement(self, node: ast.VariableDeclarationStatement):
         # Process a variable declaration, checking for redeclaration and type compatibility
         name = node.name_token.value
         if self.symtab.is_declared_in_current_scope(name):
-            self.report(VariableDeclared(
+            self.report(err.VariableDeclared(
                 self.get_error_info_on(node.name_token), name
             ))
         declared_type = self.visit(node.type)
         self.declare_var(name, declared_type, node.value)
 
-    def visit_AssignStatement(self, node: AssignStatement):
+    def visit_AssignStatement(self, node: ast.AssignStatement):
         # Process a regular assignment statement
         self.check_assignment(node.target, node.value)
     
-    def visit_AugAssignStatement(self, node: AugAssignStatement):
+    def visit_AugAssignStatement(self, node: ast.AugAssignStatement):
         # Process an augmented assignment (e.g., +=, -=, etc.)
         if self.check_assignment(node.target, node.value):
             left_type = node.target.type_info
@@ -410,15 +418,15 @@ class SemanticAnalyzer(ASTNodeVisitor):
             if left_float and right_int:
                 return
             
-            self.report(InvalidAugmentedOpTypes(
+            self.report(err.InvalidAugmentedOpTypes(
                 self.get_error_info_on(node),
                 str(left_type), str(right_type), node.op.token.value
             ))
     
-    def visit_PassStatement(self, node: PassStatement):
+    def visit_PassStatement(self, node: ast.PassStatement):
         pass
 
-    def visit_ReturnStatement(self, node: ReturnStatement):
+    def visit_ReturnStatement(self, node: ast.ReturnStatement):
         # Process a return statement, checking type compatibility with function return type
         if node.value is None:
             value_type = VoidTypeInfo()
@@ -433,18 +441,18 @@ class SemanticAnalyzer(ASTNodeVisitor):
 
         if value_type != self.current_return_type:
             err_node = node.value or node
-            self.report(UnassignableType(
+            self.report(err.UnassignableType(
                 self.get_error_info_on(err_node),
                 str(value_type), str(self.current_return_type)
             ))
     
-    def visit_IfStatement(self, node: IfStatement):
+    def visit_IfStatement(self, node: ast.IfStatement):
         self.visit(node.test)  # Condition expression
         self.visit(node.body)  # Then branch
         if node.orelse:
             self.visit(node.orelse)  # Else branch (if present)
     
-    def visit_WhileStatement(self, node: WhileStatement):
+    def visit_WhileStatement(self, node: ast.WhileStatement):
         # Process a while loop, tracking loop context for break/continue
         self.visit(node.test)
         was_loop = self.inside_loop
@@ -452,7 +460,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self.visit(node.body)
         self.inside_loop = was_loop
     
-    def visit_ForStatement(self, node: ForStatement):
+    def visit_ForStatement(self, node: ast.ForStatement):
         # Process a for loop, which has its own scope for initialization
         scope = self.enter_scope()
         node.annotate_scope(scope)
@@ -465,17 +473,17 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self.inside_loop = was_loop
         self.exit_scope()
 
-    def visit_BreakStatement(self, node: BreakStatement):
+    def visit_BreakStatement(self, node: ast.BreakStatement):
         # Check that break is used only inside a loop
         if not self.inside_loop:
-            self.report(BreakOutsideLoop(self.get_error_info_on(node)))
+            self.report(err.BreakOutsideLoop(self.get_error_info_on(node)))
     
-    def visit_ContinueStatement(self, node: ContinueStatement):
+    def visit_ContinueStatement(self, node: ast.ContinueStatement):
         # Check that continue is used only inside a loop
         if not self.inside_loop:
-            self.report(ContinueOutsideLoop(self.get_error_info_on(node)))
+            self.report(err.ContinueOutsideLoop(self.get_error_info_on(node)))
 
-    def visit_IfExpression(self, node: IfExpression):
+    def visit_IfExpression(self, node: ast.IfExpression):
         # Process a ternary conditional expression (body if test else orelse)
         self.visit(node.test)
         self.visit(node.body)
@@ -491,7 +499,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         
         node.annotate_type(body_type)
 
-    def visit_BinaryExpression(self, node: BinaryExpression):
+    def visit_BinaryExpression(self, node: ast.BinaryExpression):
         # Process binary operations with type checking based on operator type
         # Handles arithmetic, comparison, and boolean operators
 
@@ -514,7 +522,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
         )
 
         match node.op:
-            case ArithmeticOp():
+            case ast.ArithmeticOp():
                 # Arithmetic: int+int=int, float+float=float, int+float=float
                 if all_int:
                     node.annotate_type(IntTypeInfo())
@@ -523,31 +531,31 @@ class SemanticAnalyzer(ASTNodeVisitor):
                     node.annotate_type(FloatTypeInfo())
                     return
                 
-                self.report(InvalidBinaryOpTypes(
+                self.report(err.InvalidBinaryOpTypes(
                     self.get_error_info_on(node),
                     str(left_type), str(right_type), node.op.token.value
                 ))
                 node.annotate_type(ErrorTypeInfo())
                 return
 
-            case CompareOp():
+            case ast.CompareOp():
                 # Comparison operators return boolean
                 if all_int or all_float or int_float:
                     node.annotate_type(BoolTypeInfo())
                     return
                 
-                self.report(InvalidBinaryOpTypes(
+                self.report(err.InvalidBinaryOpTypes(
                     self.get_error_info_on(node),
                     str(left_type), str(right_type), node.op.token.value
                 ))
                 node.annotate_type(ErrorTypeInfo())
                 return
             
-            case BinaryBoolOp():
+            case ast.BinaryBoolOp():
                 # Boolean operators (and, or) return boolean
                 node.annotate_type(BoolTypeInfo())
     
-    def visit_UnaryExpression(self, node: UnaryExpression):
+    def visit_UnaryExpression(self, node: ast.UnaryExpression):
         # Process unary operations (+, -, !) with type checking
         self.visit(node.operand)
         op = node.op
@@ -558,19 +566,19 @@ class SemanticAnalyzer(ASTNodeVisitor):
             return
 
         match op:
-            case PosOp() | NegOp():
+            case ast.PosOp() | ast.NegOp():
                 # Unary plus/minus preserve numeric types
                 if isinstance(type_info, (IntTypeInfo, FloatTypeInfo)):
                     node.annotate_type(type_info)
                     return
-            case NotOp():
+            case ast.NotOp():
                 # Logical NOT returns boolean
                 node.annotate_type(BoolTypeInfo())
                 return
             case _:
                 raise NotImplementedError()
             
-        self.report(InvalidUnaryOpType(
+        self.report(err.InvalidUnaryOpType(
             self.get_error_info_on(node),
             str(type_info), op.token.value
         ))
@@ -580,17 +588,17 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self,
         name: str,
         params: list[ParameterInfo],
-        psargs: list[PositionalArgument],
-        kwargs: list[KeywordArgument],
-        error_info: ErrorInfo,
-    ) -> dict[str, Expression]:
+        psargs: list[ast.PositionalArgument],
+        kwargs: list[ast.KeywordArgument],
+        error_info: err.ErrorInfo,
+    ) -> dict[str, ast.Expression]:
         """
         Bind function call arguments to parameters.
         Handles positional arguments, keyword arguments, and default values.
         Reports errors for excess arguments, missing arguments, duplicates, etc.
         """
         
-        bound: dict[str, Expression] = {}
+        bound: dict[str, ast.Expression] = {}
         bound_names: set[str] = set()
         nodefaults = len([p for p in params if p.default_node is None])
 
@@ -599,16 +607,16 @@ class SemanticAnalyzer(ASTNodeVisitor):
             if i >= len(params):
                 # Too many positional arguments
                 if nodefaults == len(params):
-                    self.report(ExcessPosArgs(error_info, name, len(params), len(psargs)))
+                    self.report(err.ExcessPosArgs(error_info, name, len(params), len(psargs)))
                 else:
-                    self.report(ExcessPosArgsDefault(error_info, name, nodefaults, len(params), len(psargs)))
+                    self.report(err.ExcessPosArgsDefault(error_info, name, nodefaults, len(params), len(psargs)))
                 break
             
             param = params[i]
             param_name = param.name
             
             if param_name in bound_names:
-                self.report(DuplicateArgument(error_info, param_name))
+                self.report(err.DuplicateArgument(error_info, param_name))
             
             bound[param_name] = arg.value
             bound_names.add(param_name)
@@ -620,7 +628,7 @@ class SemanticAnalyzer(ASTNodeVisitor):
             kw_name = kwarg.name_token.value
             
             if kw_name in bound_names:
-                self.report(DuplicateArgument(error_info, kw_name))
+                self.report(err.DuplicateArgument(error_info, kw_name))
                 continue
             
             target_param = None
@@ -651,10 +659,10 @@ class SemanticAnalyzer(ASTNodeVisitor):
                 missing_params.append(param_name)
 
         if missing_params:
-            self.report(MissingParams(error_info, name, len(missing_params), missing_params))
+            self.report(err.MissingParams(error_info, name, len(missing_params), missing_params))
 
         if unknown_kwargs:
-            self.report(UnexpectedKwarg(error_info, name, unknown_kwargs))
+            self.report(err.UnexpectedKwarg(error_info, name, unknown_kwargs))
 
         # Check for types
         for name, expr in bound.items():
@@ -663,22 +671,22 @@ class SemanticAnalyzer(ASTNodeVisitor):
                 self.visit(expr)
                 value_type = expr.type_info
                 if value_type != param_info.type_info:
-                    self.report(UnassignableType(
+                    self.report(err.UnassignableType(
                         error_info, str(value_type), str(param_info.type_info
                     )))
 
         return bound
     
-    def visit_CallExpression(self, node: CallExpression):
+    def visit_CallExpression(self, node: ast.CallExpression):
         callee = node.callee
 
-        if not isinstance(callee, Identifier):
+        if not isinstance(callee, ast.Identifier):
             raise NotImplementedError()
         
         name = callee.token.value
         signature = self.symtab.lookup_func_signature(name)
         if signature is None:
-            self.report(FunctionNotDeclared(self.get_error_info_on(callee), name))
+            self.report(err.FunctionNotDeclared(self.get_error_info_on(callee), name))
             node.annotate_type(ErrorTypeInfo())
             return
         
@@ -687,8 +695,8 @@ class SemanticAnalyzer(ASTNodeVisitor):
         args = node.args
 
         # Separate positional and keyword arguments
-        psargs = [arg for arg in args if isinstance(arg, PositionalArgument)]
-        kwargs = [arg for arg in args if isinstance(arg, KeywordArgument)]
+        psargs = [arg for arg in args if isinstance(arg, ast.PositionalArgument)]
+        kwargs = [arg for arg in args if isinstance(arg, ast.KeywordArgument)]
         error_info = self.get_error_info_on(node)
 
         # Bind arguments to parameters and check for errors
@@ -696,44 +704,43 @@ class SemanticAnalyzer(ASTNodeVisitor):
         self.call_param_bindings[node] = bound
         node.annotate_type(returntype)
     
-    def visit_Constant(self, node: Constant):
+    def visit_Constant(self, node: ast.Constant):
         # Determine the type of a constant literal
         value = node.value.value
 
-        if node.value.type == TokenType.INT:
+        if node.value.type == lex.TokenType.INT:
             node.annotate_type(IntTypeInfo())
-        elif node.value.type == TokenType.FLOAT:
+        elif node.value.type == lex.TokenType.FLOAT:
             node.annotate_type(FloatTypeInfo())
         elif value in ["true", "false"]:
             node.annotate_type(BoolTypeInfo())
         else:
             raise NotImplementedError()
     
-    def visit_Identifier(self, node: Identifier):
+    def visit_Identifier(self, node: ast.Identifier):
         # Resolve an identifier to its declared type
         name = node.token.value
         type_info = self.lookup_vartype(name)
         if type_info is None:
-            self.report(VariableNotDeclared(
+            self.report(err.VariableNotDeclared(
                 self.get_error_info_on(node), name
             ))
             node.annotate_type(ErrorTypeInfo())
             return
         node.annotate_type(type_info)
     
-    def visit_IntType(self, node: IntType):
+    def visit_IntType(self, node: ast.IntType):
         return IntTypeInfo()
     
-    def visit_FloatType(self, node: FloatType):
+    def visit_FloatType(self, node: ast.FloatType):
         return FloatTypeInfo()
     
-    def visit_BoolType(self, node: BoolType):
+    def visit_BoolType(self, node: ast.BoolType):
         return BoolTypeInfo()
 
 
 def main():
     import argparse
-    import sys
     
     from vcs.lexer import Lexer
     from vcs.parser import Parser
@@ -764,10 +771,10 @@ def main():
         source = f.read()
 
     # Lex, parse, and perform semantic analysis
-    errors = ErrorCollector()
+    errors = err.ErrorCollector()
     lexer = Lexer(source, filename, errors, args.tabsize)
     parser = Parser(lexer, errors, skip_comments)
-    tree: Module = parser.parse()
+    tree: ast.Module = parser.parse()
     typechecker = SemanticAnalyzer(errors, parser.get_error_info_on)
     typechecker.visit(tree)
 
@@ -775,7 +782,7 @@ def main():
     if not errors.ok():
         errors.sort()
         for issue in errors.issues:
-            print(dump_error(issue), file=sys.stderr)
+            utils.print_compiler_error(issue)
         return
 
 if __name__ == "__main__":
