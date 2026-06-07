@@ -3,13 +3,14 @@ from __future__ import annotations
 import os
 import re
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard, overload
 
 from vcs import errors as err
 from vcs import lexer as lex
 
 if TYPE_CHECKING:
-    from vcs import astnodes as ast
+    from vcs import ast
+    from vcs import ir
 
 
 class SingletonMeta(type):
@@ -214,7 +215,7 @@ def dump_astnode(
     Human-readable dump of AST-like node structures
     Produces a compact string representation of node objects, lists, and primitives
     """
-    from vcs import astnodes as ast
+    from vcs import ast
 
     def _format(node, level=0):
         if indent is not None:

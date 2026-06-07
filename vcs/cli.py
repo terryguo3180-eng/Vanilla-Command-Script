@@ -7,9 +7,11 @@ from types import ModuleType
 from typing import Callable
 
 from vcs import errors as err
+from vcs import cmdgen as cgn
 from vcs import irgen as irg
 from vcs import lexer as lex
 from vcs import parser as psr
+from vcs import constfold as cf
 from vcs import semantic as sem
 from vcs import utils
 
@@ -118,9 +120,19 @@ class CommandLineInterface:
             help="Print stats of the parser",
         )
         argparser.add_argument(
+            "--dump-const-fold",
+            action="store_true",
+            help="Print the generated constant-folded AST",
+        )
+        argparser.add_argument(
             "--dump-ir",
             action="store_true",
             help="Print the generated IR (Intermediate Representation)",
+        )
+        argparser.add_argument(
+            "--dump-cmds",
+            action="store_true",
+            help="Print the generated datapack",
         )
         
         args = argparser.parse_args()
@@ -135,28 +147,35 @@ class CommandLineInterface:
         self.dump_ast: bool = args.dump_ast
         self.dump_tree: bool = args.dump_tree
         self.parse_stats: bool = args.parse_stats
+        self.dump_const_fold: bool = args.dump_const_fold
         self.dump_ir: bool = args.dump_ir
+        self.dump_cmds: bool = args.dump_cmds
+
+        stages = [
+            (['dump_tokens', 'lex_stats'], self.lexer_cli, []),
+            (['dump_ast', 'dump_tree', 'parse_stats'], self.parser_cli, ['vcs.lexer']),
+            (['dump_const_fold'], self.constfold_cli, ['vcs.lexer', 'vcs.parser']),
+            (['dump_ir'], self.irgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic']),
+            (['dump_cmds'], self.cmdgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic', 'vcs.irgen']),
+        ]
 
         funcs = []
-        if self.dump_tokens or self.lex_stats:
-            funcs.append(self.lexer_cli)
-        if self.dump_ast or self.dump_tree or self.parse_stats:
-            if modname == "vcs.lexer":
-                utils.print_error(f"Parser arguments cannot be used in {modname!r}")
-                exit(1)
-            funcs.append(self.parser_cli)
-        if self.dump_ir:
-            if modname in ["vcs.lexer", "vcs.parser", "vcs.semantic"]:
-                utils.print_error(f"IR generator arguments cannot be used in {modname!r}")
-                exit(1)
-            funcs.append(self.irgen_cli)
+        for flags, func, invalid_modules in stages:
+            if any(getattr(self, flag) for flag in flags):
+                if modname in invalid_modules:
+                    flags_str = ','.join(f'--{flag}' for flag in flags if getattr(self, flag))
+                    utils.print_error(f"{flags_str} cannot be used in {modname!r}")
+                    exit(1)
+                funcs.append(func)
 
         func: Callable[[str, str], None] | None = {
             "vcs.lexer": self.lexer_cli,
             "vcs.parser": self.parser_cli,
+            "vcs.constfold": self.constfold_cli,
             "vcs.semantic": self.semantic_cli,
             "vcs.irgen": self.irgen_cli,
-            "vcs.cli": self.irgen_cli,
+            "vcs.cmdgen": self.cmdgen_cli,
+            "vcs.cli": self.cmdgen_cli,
         }.get(modname)
 
         if func is None:
@@ -195,9 +214,11 @@ class CommandLineInterface:
         self.errors = err.ErrorCollector()
         lexer = lex.Lexer(source, filename, self.errors, self.tabsize)
         parser = psr.Parser(lexer, self.errors, self.skip_comments, self.dump_tree)
-        typechecker = sem.SemanticAnalyzer(parser, self.errors)
+        constfolder = cf.ConstantFolder(parser)
+        typechecker = sem.SemanticAnalyzer(constfolder, self.errors)
         irgen = irg.IRGenerator(self.namespace, typechecker)
-        return (lexer, parser, typechecker, irgen)
+        cmdgen = cgn.CommandGenerator(irgen)
+        return (lexer, parser, constfolder, typechecker, irgen, cmdgen)
 
     def print_errors_if_any(self):
         if not self.errors.ok():
@@ -220,8 +241,7 @@ class CommandLineInterface:
             nlines = tokens[-1].end_lineno
             line_psec = f"; {nlines / dt:.0f} lines/sec"
             utils.print_info(
-                f"Lexer Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); "
-                f"Tokens: {len(tokens)}"
+                f"Lexer Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Tokens: {len(tokens)}"
             )
 
         self.print_errors_if_any()
@@ -240,22 +260,35 @@ class CommandLineInterface:
             nlines = parser.diagnose().end_lineno
             line_psec = f", {nlines / dt:.0f} lines/sec"
             utils.print_info(
-                f"Parser Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); "
-                f"Tokens: {len(parser._tokenstream._tokens)}; Cache size: {len(parser._cache)}"
+                f"Parser Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Cache size: {len(parser._cache)}"
             )
         
         self.print_errors_if_any()
 
+    def constfold_cli(self, filename: str, source: str):
+        _, _, constfolder, *_ = self.build_pipeline(filename, source)
+        folded = constfolder.fold()
+        if self.dump_const_fold:
+            utils.print_info(str(folded))
+        self.print_errors_if_any()
+
     def semantic_cli(self, filename: str, source: str):
-        _, _, typechecker, *_ = self.build_pipeline(filename, source)
+        _, _, _, typechecker, *_ = self.build_pipeline(filename, source)
         typechecker.analyze()
         self.print_errors_if_any()
     
     def irgen_cli(self, filename: str, source: str):
-        _, _, _, irgen, *_ = self.build_pipeline(filename, source)
+        _, _, _, _, irgen, *_ = self.build_pipeline(filename, source)
         module = irgen.generate()
         if module is not None and self.dump_ir:
             utils.print_info(str(module))
+        self.print_errors_if_any()
+    
+    def cmdgen_cli(self, filename: str, source: str):
+        _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
+        datapack = cmdgen.generate()
+        if datapack is not None and self.dump_cmds:
+            utils.print_info(str(datapack))
         self.print_errors_if_any()
 
 
@@ -264,3 +297,7 @@ def cli():
     module = frame.f_globals.get("__name__")
     assert module is not None
     CommandLineInterface(sys.modules[module])
+
+
+if __name__ == "__main__":
+    cli()

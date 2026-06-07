@@ -217,24 +217,32 @@ class UnassignableType(SemanticError):
         self.message = f"Type '{actual}' is not assignable to declared type '{expected}'"
 
 
+class InvalidConditionType(SemanticError):
+    code = counter()
+
+    def __init__(self, info: ErrorInfo, type: str, warning=False):
+        super().__init__(info, warning)
+        self.message = f"Conditions only accept type Int and Bool, but got '{type}'"
+
+
 class InvalidAugmentedOpTypes(SemanticError):
     code = counter()
 
     def __init__(
-        self, info: ErrorInfo, left_type: str, right_type: str, op: str, warning=False
+        self, info: ErrorInfo, lhs_type: str, rhs_type: str, op: str, warning=False
     ):
         super().__init__(info, warning)
-        self.message = f"Invalid operand types for augmented '{op}': '{left_type}' and '{right_type}'"
+        self.message = f"Invalid operand types for augmented '{op}': '{lhs_type}' and '{rhs_type}'"
 
 
 class InvalidBinaryOpTypes(SemanticError):
     code = counter()
 
     def __init__(
-        self, info: ErrorInfo, left_type: str, right_type: str, op: str, warning=False
+        self, info: ErrorInfo, lhs_type: str, rhs_type: str, op: str, warning=False
     ):
         super().__init__(info, warning)
-        self.message = f"Invalid operand types for binary '{op}': '{left_type}' and '{right_type}'"
+        self.message = f"Invalid operand types for binary '{op}': '{lhs_type}' and '{rhs_type}'"
 
 
 class InvalidUnaryOpType(SemanticError):

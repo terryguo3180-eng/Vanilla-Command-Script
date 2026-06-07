@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, TypeGuard, overload
 
 from vcs import utils
 
@@ -9,22 +9,25 @@ from vcs import utils
 class Type: ...
 
 
-class IntType(Type):
+class SimpleType(Type, metaclass=utils.SingletonMeta): ...
+
+
+class IntType(SimpleType):
     def __str__(self):
         return f'Int'
 
 
-class FloatType(Type):
+class FloatType(SimpleType):
     def __str__(self):
         return f'Float'
 
 
-class VoidType(Type):
+class VoidType(SimpleType):
     def __str__(self):
         return 'Void'
 
 
-class LabelType(Type):
+class LabelType(SimpleType):
     def __str__(self):
         return 'Label'
 
@@ -47,34 +50,57 @@ class FunctionType(Type):
         return f'({params}) -> {self.return_type}'
 
 
-class Value:
-    def __init__(self, type: Type):
+class Value[T: Type]:
+    def __init__(self, type: T):
         self.type = type
 
 
-class NamedValue(Value):
-    _counter = 0
-    
-    def __init__(self, name: str, type: Type):
+@overload
+def int_typed[T: Type](value: NamedValue[T]) -> TypeGuard[NamedValue[IntType]]: ...
+@overload
+def int_typed[T: Type](value: Constant[T]) -> TypeGuard[Constant[IntType]]: ...
+@overload
+def int_typed[T: Type](value: Value[T]) -> TypeGuard[Value[IntType]]: ...
+
+def int_typed(value: Value) -> bool:
+    return isinstance(value.type, IntType)
+
+@overload
+def float_typed[T: Type](value: NamedValue[T]) -> TypeGuard[NamedValue[FloatType]]: ...
+@overload
+def float_typed[T: Type](value: Constant[T]) -> TypeGuard[Constant[FloatType]]: ...
+@overload
+def float_typed[T: Type](value: Value[T]) -> TypeGuard[Value[FloatType]]: ...
+
+def float_typed(value: Value) -> bool:
+    return isinstance(value.type, FloatType)
+
+
+class NamedValue[T: Type](Value[T]):
+    def __init__(self, name: str, type: T):
         super().__init__(type)
-        if name == "":
-            self.name = f"%{NamedValue._counter}"
-            NamedValue._counter += 1
-        else:
-            self.name = f"%{name}"
+        self.name = name
     
     def __str__(self):
         return f"({self.name}: {self.type})"
 
 
-class Constant(Value):
-    def __init__(self, value, type: Type):
+class Constant[T: Type](Value[T]):
+    def __init__(self, value: int | float, type: T):
         super().__init__(type)
-        self.value = value
+        self._value = value
+
+    @overload
+    def value(self: Constant[IntType]) -> int: ...
+    @overload
+    def value(self: Constant[FloatType]) -> float: ...
+
+    def value(self):
+        return self._value
     
     def __str__(self):
         if isinstance(self.type, (IntType, FloatType)):
-            return str(self.value)
+            return str(self._value)
         return super().__str__()
 
 
@@ -93,19 +119,11 @@ class Comment(Instruction):
 
 @dataclass
 class IntBinaryInstr(Instruction):
-    lhs: Value
-    rhs: Value
-    target: NamedValue
+    lhs: Value[IntType]
+    rhs: Value[IntType]
+    target: NamedValue[IntType]
 
     _opname: ClassVar[str]
-
-    def __post_init__(self):
-        if not (
-            isinstance(self.lhs.type, IntType)
-            and isinstance(self.rhs.type, IntType)
-            and isinstance(self.target.type, IntType)
-        ):
-            raise ValueError(self)
         
     def __str__(self):
         return f"{self.target} = {self._opname} {self.lhs}, {self.rhs}"
@@ -133,19 +151,11 @@ class IMod(IntBinaryInstr):
 
 @dataclass
 class FloatBinaryInstr(Instruction):
-    lhs: Value
-    rhs: Value
-    target: NamedValue
+    lhs: Value[FloatType]
+    rhs: Value[FloatType]
+    target: NamedValue[FloatType]
 
     _opname: ClassVar[str]
-
-    def __post_init__(self):
-        if not (
-            isinstance(self.lhs.type, FloatType)
-            and isinstance(self.rhs.type, FloatType)
-            and isinstance(self.target.type, FloatType)
-        ):
-            raise ValueError(self)
         
     def __str__(self):
         return f"{self.target} = {self._opname} {self.lhs}, {self.rhs}"
@@ -173,8 +183,8 @@ class FMod(FloatBinaryInstr):
 
 @dataclass
 class IntToFloat(Instruction):
-    value: Value
-    target: NamedValue
+    value: NamedValue[IntType]
+    target: NamedValue[FloatType]
 
     def __str__(self):
         return f"{self.target} = itof {self.value}"
@@ -182,8 +192,8 @@ class IntToFloat(Instruction):
 
 @dataclass
 class FloatToInt(Instruction):
-    value: Value
-    target: NamedValue
+    value: NamedValue[FloatType]
+    target: NamedValue[IntType]
 
     def __str__(self):
         return f"{self.target} = ftoi {self.value}"
@@ -191,8 +201,8 @@ class FloatToInt(Instruction):
 
 @dataclass
 class Not(Instruction):
-    value: Value
-    target: NamedValue
+    value: NamedValue[IntType]
+    target: NamedValue[IntType]
 
     def __post_init__(self):
         if not (
@@ -217,49 +227,50 @@ class Or(IntBinaryInstr):
 
 @dataclass
 class ICmp(Instruction):
-    left: Value
-    right: Value
+    lhs: Value
+    rhs: Value
     target: NamedValue
     op: utils.CompareOp
 
     def __post_init__(self):
         if not (
-            isinstance(self.left.type, IntType)
-            and isinstance(self.right.type, IntType)
+            isinstance(self.lhs.type, IntType)
+            and isinstance(self.rhs.type, IntType)
             and isinstance(self.target.type, IntType)
         ):
             raise ValueError(self)
 
     def __str__(self):
-        return f"{self.target} = icmp {self.op} {self.left}, {self.right}"
+        return f"{self.target} = icmp {self.op} {self.lhs}, {self.rhs}"
 
 
 @dataclass
 class FCmp(Instruction):
-    left: Value
-    right: Value
+    lhs: Value
+    rhs: Value
     target: NamedValue
     op: utils.CompareOp
 
-    def __post_init__(self):
-        if not (
-            isinstance(self.left.type, FloatType)
-            and isinstance(self.right.type, FloatType)
-            and isinstance(self.target.type, IntType)
-        ):
-            raise ValueError(self)
-
     def __str__(self):
-        return f"{self.target} = fcmp {self.op} {self.left}, {self.right}"
+        return f"{self.target} = fcmp {self.op} {self.lhs}, {self.rhs}"
 
 
 @dataclass
-class Load(Instruction):
-    value: Value
-    target: NamedValue
+class IntAssign(Instruction):
+    value: Value[IntType]
+    target: NamedValue[IntType]
+
+    def __str__(self):
+        return f"{self.target} = int {self.value}"
+
+
+@dataclass
+class FloatAssign(Instruction):
+    value: Value[FloatType]
+    target: NamedValue[FloatType]
     
     def __str__(self):
-        return f"{self.target} = load {self.value}"
+        return f"{self.target} = float {self.value}"
 
 
 @dataclass
@@ -287,8 +298,9 @@ class Call(Instruction):
         
 
 class BasicBlock(NamedValue):
-    def __init__(self, name: str):
+    def __init__(self, name: str, func: Function):
         self.name = name
+        self.func = func
         self.type = LabelType()
         self.instructions: list[Instruction] = []
     
@@ -316,17 +328,9 @@ class Goto(Instruction):
 
 @dataclass
 class Branch(Instruction):
-    cond: NamedValue
+    cond: NamedValue[IntType]
     true: BasicBlock
     false: BasicBlock
-
-    def __post_init__(self):
-        if not (
-            isinstance(self.cond.type, IntType)
-            and isinstance(self.true, BasicBlock)
-            and isinstance(self.false, BasicBlock)
-        ):
-            raise ValueError(self)
     
     def __str__(self):
         return f"branch {self.cond} {self.true} {self.false}"
@@ -339,12 +343,12 @@ class Function(NamedValue):
         Value.__init__(self, type)
         self.name = name
         self.blocks: list[BasicBlock] = []
-        self.entry_block = BasicBlock("entry")
+        self.entry_block = BasicBlock("entry", self)
         self.blocks.append(self.entry_block)
         self.param_names = param_names or [f"p{i}" for i in range(len(type.param_types))]
 
     def create_block(self, name: str) -> BasicBlock:
-        block = BasicBlock(name)
+        block = BasicBlock(name, self)
         self.blocks.append(block)
         return block
 
@@ -378,8 +382,8 @@ class IRBuilder:
         self._value_counter = 0
         self._assigned: list[NamedValue] = []
     
-    def new_temp(self, type: Type):
-        temp = NamedValue(f"t{self._value_counter}", type)
+    def new_temp[T: Type](self, type: T) -> NamedValue[T]:
+        temp = NamedValue[T](f"#t{self._value_counter}", type)
         self._value_counter += 1
         return temp
     
@@ -388,10 +392,25 @@ class IRBuilder:
     
     def emit(self, inst: Instruction):
         self.cur_block.emit(inst)
+        
+    def is_terminated(self) -> bool:
+        if not self.cur_block.instructions:
+            return False
+        last = self.cur_block.instructions[-1]
+        return isinstance(last, (Return, Branch, Goto))
     
     def call(self, func: Function, args: list[Value], target: NamedValue | None):
         if not isinstance(func.type.return_type, VoidType):
             self.emit(Call(func, args, target))
         else:
             self.emit(Call(func, args))
+
+
+class IRProcessor:
+    def process(self, inst: Module | Instruction | Value):
+        method = "process_" + type(inst).__name__
+        processor = getattr(self, method, self.generic_process)
+        return processor(inst)
     
+    def generic_process(self, inst: Module | Instruction | Value):
+        raise NotImplementedError(f"{type(self).__name__}.{type(inst).__name__}() not implemented")

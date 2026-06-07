@@ -1,0 +1,15 @@
+main():
+    if 1 / 0:
+        if 2 / 0:
+            print(100)
+        else:
+            print(200)
+    else:
+        print(19999)
+
+    for (i: Int = 1; ; i += 1):
+        print(i)
+        
+print(a: Int, b: Int = 1) -> Int:
+    b += 1
+    return a

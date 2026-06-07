@@ -18,7 +18,7 @@ def _maybe(*choices):
 
 class LexerConfig:
     """
-    Configuration class that contains various mappings and regexes used in the lexer
+    Configuration class that contains various mappings and regexes used in the lexer.
     """
 
     brackets = {"(": ")", "[": "]", "{": "}"}
@@ -49,7 +49,7 @@ class LexerConfig:
 @dataclass(slots=True)
 class TokenInfo:
     """
-    Token container with position metadata
+    Token container with position metadata.
     """
     type: TokenType
     value: str
@@ -81,7 +81,7 @@ class TokenInfo:
 
 class TokenType(Enum):
     """
-    Enumeration of token kinds emitted by the lexer
+    Enumeration of token kinds emitted by the lexer.
     """
 
     NAME = auto()
@@ -103,7 +103,7 @@ class TokenType(Enum):
 
 class Lexer:
     """
-    The main lexer class
+    The main lexer class.
     """
 
     class LexerState(Enum):

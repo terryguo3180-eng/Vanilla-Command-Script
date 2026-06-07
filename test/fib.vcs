@@ -1,5 +1,6 @@
 main() -> Int:
-    result: Int = fib(20)
+    result: Int = 0
+    result = fib(20)
     return result
 
 fib(n: Int) -> Int:

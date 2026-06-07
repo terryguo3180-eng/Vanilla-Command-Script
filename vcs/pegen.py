@@ -1,3 +1,10 @@
+"""
+Pegen - PEG Generator
+
+A single-file version of https://github.com/we-like-parsers/pegen, heavily
+modified for project compatibility.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +31,7 @@ type RuleList = list[Rule]
 type NamedItemList = list[NamedItem]
 type LookaheadOrCut = Lookahead | Forced | Cut
 
+
 # Global flag whether we want actions in the comments -- default off
 SIMPLE_STR = True
 
@@ -35,9 +43,10 @@ MODULE_PREFIX = """\
 from functools import wraps
 from typing import Any, Callable, ClassVar, cast
 
-from vcs import astnodes as ast
+from vcs import ast
 from vcs import errors as err
 from vcs import lexer as lex
+from vcs import utils
 {subheader}
 
 type Mark = int
@@ -58,7 +67,7 @@ del _get_indent_closure
 
 def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
     \"""
-    logging decorator for non-memoized parser methods
+    Logging decorator for non-memoized parser methods.
     \"""
     method_name = method.__name__
 
@@ -73,7 +82,7 @@ def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
         args_repr = ",".join(repr(arg) for arg in args)
         peek_repr = repr(self._showpeek())
 
-        print(f"{{fill}}{{method_name}}({{args_repr}}) .... (looking at {{peek_repr}})")
+        utils.print_info(f"{{fill}}{{method_name}}({{args_repr}}) .... (looking at {{peek_repr}})")
 
         self._level = level + 1
         try:
@@ -82,7 +91,7 @@ def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
             self._level = level
 
         tree_repr = repr(tree)[:80]
-        print(f"{{fill}}... {{method_name}}({{args_repr}}) --> {{tree_repr}}")
+        utils.print_info(f"{{fill}}... {{method_name}}({{args_repr}}) --> {{tree_repr}}")
         return tree
 
     return cast(F, logger_wrapper)
@@ -90,7 +99,7 @@ def logger[F: Callable[..., Any], P: {class_name}](method: F) -> F:
 
 def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
     \"""
-    memoization decorator for parser methods
+    Memoization decorator for parser methods.
     \"""
     method_name = method.__name__
 
@@ -117,7 +126,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
                 fill = _get_indent(self._level)
                 args_repr = ",".join(repr(arg) for arg in args)
                 tree_repr = repr(tree)[:80]
-                print(f"{{fill}}{{method_name}}({{args_repr}}) -> {{tree_repr}}")
+                utils.print_info(f"{{fill}}{{method_name}}({{args_repr}}) -> {{tree_repr}}")
                 return tree
 
         # slow path
@@ -127,7 +136,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
             fill = _get_indent(level)
             args_repr = ",".join(repr(arg) for arg in args)
             peek_repr = repr(self._showpeek())
-            print(f"{{fill}}{{method_name}}({{args_repr}}) ... (looking at {{peek_repr}})")
+            utils.print_info(f"{{fill}}{{method_name}}({{args_repr}}) ... (looking at {{peek_repr}})")
 
         self._level = level + 1
         try:
@@ -140,7 +149,7 @@ def memoize[F: Callable[..., Any], P: {class_name}](method: F) -> F:
 
         if self.verbose:
             tree_repr = repr(tree)[:80]
-            print(f"{{fill}}... {{method_name}}({{args_repr}}) -> {{tree_repr}}")  # type: ignore
+            utils.print_info(f"{{fill}}... {{method_name}}({{args_repr}}) -> {{tree_repr}}")  # type: ignore
 
         return tree
 
@@ -151,7 +160,7 @@ def memoize_left_rec[P: {class_name}, T](
     method: Callable[[P], T | None],
 ) -> Callable[[P], T | None]:
     \"""
-    memoization for left-recursive grammar rules
+    Memoization for left-recursive grammar rules.
     \"""
     method_name = method.__name__
 
@@ -178,7 +187,7 @@ def memoize_left_rec[P: {class_name}, T](
                     self._reset(endmark)
                 fill = _get_indent(self._level)
                 tree_repr = repr(tree)[:80] if tree else "None"
-                print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [fresh]")
+                utils.print_info(f"{{fill}}{{method_name}}() -> {{tree_repr}} [fresh]")
                 return tree
 
         # For left-recursive rules we manipulate the cache and
@@ -194,8 +203,8 @@ def memoize_left_rec[P: {class_name}, T](
 
         if self.verbose:
             peek_repr = repr(self._showpeek())
-            print(f"{{fill}}{{method_name}} ... (looking at {{peek_repr}})")
-            print(f"{{fill}}Recursive {{method_name}} at {{mark}} depth 0")
+            utils.print_info(f"{{fill}}{{method_name}} ... (looking at {{peek_repr}})")
+            utils.print_info(f"{{fill}}Recursive {{method_name}} at {{mark}} depth 0")
 
         cache[key] = (None, mark)
         lastresult: T | None = None
@@ -217,20 +226,20 @@ def memoize_left_rec[P: {class_name}, T](
 
                 if self.verbose:
                     result_repr = repr(result)[:80] if result else "None"
-                    print(
+                    utils.print_info(
                         f"{{fill}}Recursive {{method_name}} at {{mark}} depth {{depth}}: {{result_repr}} to {{endmark}}"
                     )
 
                 if not result:
                     if self.verbose:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
-                        print(f"{{fill}}Fail with {{last_repr}} to {{lastmark}}")
+                        utils.print_info(f"{{fill}}Fail with {{last_repr}} to {{lastmark}}")
                     break
 
                 if endmark <= lastmark:
                     if self.verbose:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
-                        print(f"{{fill}}Bailing with {{last_repr}} to {{lastmark}}")
+                        utils.print_info(f"{{fill}}Bailing with {{last_repr}} to {{lastmark}}")
                     break
 
                 cache[key] = (result, endmark)
@@ -243,7 +252,7 @@ def memoize_left_rec[P: {class_name}, T](
 
         if self.verbose:
             tree_repr = repr(tree)[:80] if tree else "None"
-            print(f"{{fill}}{{method_name}}() -> {{tree_repr}} [cached]")
+            utils.print_info(f"{{fill}}{{method_name}}() -> {{tree_repr}} [cached]")
 
         if tree is not None:
             endmark = self._mark()
@@ -259,8 +268,8 @@ def memoize_left_rec[P: {class_name}, T](
 
 class TokenStream:
     \"""
-    A small lookahead/rewind wrapper around a Lexer iterator
-    Keeps tokens in a buffer so callers can peek, getnext, mark/reset etc
+    A small lookahead/rewind wrapper around a Lexer iterator.
+    Keeps tokens in a buffer so callers can peek, getnext, mark/reset etc.
     \"""
 
     def __init__(self, lexer: lex.Lexer):
@@ -325,7 +334,7 @@ class TokenStream:
 
 class {class_name}:
     \"""
-    The main parser class
+    The main parser class.
     \"""
 
     KEYWORDS: ClassVar[tuple[str, ...]]
@@ -434,7 +443,7 @@ class {class_name}:
         end_node: ast.ASTNode | lex.TokenInfo,
     ) -> err.ErrorInfo:
         \"""
-        Report an error where the start and end locations are known
+        Report an error where the start and end locations are known.
         \"""
         start_lineno, start_column = start_node.lineno, start_node.column
         end_lineno, end_column = end_node.end_lineno, end_node.end_column
@@ -462,10 +471,10 @@ if __name__ == "__main__":
 
 class GrammarVisitor:
     """
-    Base visitor class for traversing grammar AST nodes
+    Base visitor class for traversing grammar AST nodes.
 
     Subclasses implement visit_<NodeType> methods. The visit() method
-    dispatches to the appropriate handler or falls back to generic_visit
+    dispatches to the appropriate handler or falls back to generic_visit.
     """
 
     def visit(self, node: Any, *args: Any, **kwargs: Any) -> Any:
@@ -478,8 +487,8 @@ class GrammarVisitor:
 
     def generic_visit(self, node: Iterable[Any], *args: Any, **kwargs: Any) -> None:
         """
-        Called if no explicit visitor function exists for a node
-        Iterates over lists and nested nodes
+        Called if no explicit visitor function exists for a node.
+        Iterates over lists and nested nodes.
         """
         for value in node:
             if isinstance(value, list):
@@ -495,7 +504,7 @@ class GrammarError(Exception):
 
 class Grammar:
     """
-    Represents the entire grammar: mapping of rule names to Rule objects and metadata
+    Represents the entire grammar: mapping of rule names to Rule objects and metadata.
     """
 
     def __init__(self, rules: Iterable[Rule], metas: Iterable[tuple[str, str | None]]):
@@ -521,7 +530,7 @@ class Grammar:
 
 class Rule:
     """
-    A grammar rule
+    A grammar rule.
 
     name: rule name
     type: optional annotation for the AST node type produced
@@ -586,7 +595,7 @@ class Rule:
 
 class Leaf:
     """
-    Base class for terminal grammar elements (name or string)
+    Base class for terminal grammar elements (name or string).
     """
 
     def __init__(self, value: str):
@@ -609,7 +618,7 @@ class Leaf:
 
 class NameLeaf(Leaf):
     """
-    Leaf representing a reference to another rule or a token name
+    Leaf representing a reference to another rule or a token name.
     """
 
     def __str__(self) -> str:
@@ -631,7 +640,7 @@ class NameLeaf(Leaf):
 
 class StringLeaf(Leaf):
     """
-    Leaf representing a literal string token (including quotes)
+    Leaf representing a literal string token (including quotes).
     """
 
     def __repr__(self) -> str:
@@ -643,7 +652,7 @@ class StringLeaf(Leaf):
 
 class Rhs:
     """
-    Right-hand side: a collection of alternatives (Alt objects)
+    Right-hand side: a collection of alternatives (Alt objects).
     """
 
     def __init__(self, alts: list[Alt]):
@@ -672,7 +681,7 @@ class Rhs:
 
 class Alt:
     """
-    One alternative in a production; composed of a list of NamedItem
+    One alternative in a production; composed of a list of NamedItem.
     icut: optional left-cut position (internal)
     action: optional action string attached to the alt
     """
@@ -717,7 +726,7 @@ class Alt:
 
 class NamedItem:
     """
-    An item that may be bound to a name in actions
+    An item that may be bound to a name in actions.
     """
 
     def __init__(self, name: str | None, item: Item, type: str | None = None):
@@ -747,7 +756,7 @@ class NamedItem:
 
 class Forced:
     """
-    Forced lookahead: '&&' operator in grammar (double ampersand)
+    Forced lookahead: '&&' operator in grammar (double ampersand).
     """
 
     def __init__(self, node: Plain):
@@ -765,7 +774,7 @@ class Forced:
 
 class Lookahead:
     """
-    Base for positive/negative lookahead operators
+    Base for positive/negative lookahead operators.
     sign: textual sign used in pretty printing ('&' or '!')
     """
 
@@ -801,7 +810,7 @@ class NegativeLookahead(Lookahead):
 
 class Opt:
     """
-    Optional item: either [X] or X? in grammar notation
+    Optional item: either [X] or X? in grammar notation.
     """
 
     def __init__(self, node: Item):
@@ -827,7 +836,7 @@ class Opt:
 
 class Repeat:
     """
-    Shared base class for x* and x+ repetition constructs
+    Shared base class for x* and x+ repetition constructs.
     """
 
     def __init__(self, node: Plain):
@@ -869,7 +878,7 @@ class Repeat1(Repeat):
 
 class Gather(Repeat):
     """
-    Gather represents separated repetition: sep.elem+ notation
+    Gather represents separated repetition: sep.elem+ notation.
     """
 
     def __init__(self, separator: Plain, node: Plain):
@@ -885,7 +894,7 @@ class Gather(Repeat):
 
 class Group:
     """
-    Parenthesized group in the grammar, e.g. (A B | C)
+    Parenthesized group in the grammar, e.g. (A B | C).
     """
 
     def __init__(self, rhs: Rhs):
@@ -906,7 +915,7 @@ class Group:
 
 class Cut:
     """
-    Cut operator (~) used to prevent backtracking past a point
+    Cut operator (~) used to prevent backtracking past a point.
     """
 
     def __init__(self) -> None:
@@ -933,7 +942,7 @@ class Cut:
 
 class RuleCheckingVisitor(GrammarVisitor):
     """
-    Visitor that validates rule references and variable names in the grammar
+    Visitor that validates rule references and variable names in the grammar.
     """
 
     def __init__(self, rules: dict[str, Rule]):
@@ -958,8 +967,8 @@ class RuleCheckingVisitor(GrammarVisitor):
 
 class ParserGenerator:
     """
-    Base class for generating a parser implementation from a Grammar
-    Subclasses must implement generate() to output language specific code
+    Base class for generating a parser implementation from a Grammar.
+    Subclasses must implement generate() to output language specific code.
     """
 
     callmakervisitor: GrammarVisitor
@@ -1163,8 +1172,8 @@ class NullableVisitor(GrammarVisitor):
 
 def compute_nullables(rules: dict[str, Rule]) -> None:
     """
-    Compute which rules in a grammar are nullable
-    This populates the Rule.nullable flags using a fixpoint visitor
+    Compute which rules in a grammar are nullable.
+    This populates the Rule.nullable flags using a fixpoint visitor.
     """
     nullable_visitor = NullableVisitor(rules)
     for rule in rules.values():
@@ -1175,8 +1184,8 @@ def compute_left_recursives(
     rules: dict[str, Rule],
 ) -> tuple[dict[str, set[str]], list[set[str]]]:
     """
-    Compute left-recursive rules and SCCs in the invocation graph
-    Returns the 'first' graph and the list of strongly connected components
+    Compute left-recursive rules and SCCs in the invocation graph.
+    Returns the 'first' graph and the list of strongly connected components.
     """
     graph = make_first_graph(rules)
     sccs = list(strongly_connected_components(set(graph.keys()), graph))
@@ -1207,9 +1216,9 @@ def compute_left_recursives(
 
 def make_first_graph(rules: dict[str, Rule]) -> dict[str, set[str]]:
     """
-    Compute the graph of left-invocations
-    There's an edge from A to B if A may invoke B at its initial position
-    Note that this requires the nullable flags to have been computed
+    Compute the graph of left-invocations.
+    There's an edge from A to B if A may invoke B at its initial position.
+    Note that this requires the nullable flags to have been computed.
     """
     graph = {}
     vertices: set[str] = set()
@@ -1225,7 +1234,7 @@ def strongly_connected_components(
     vertices: set[str], edges: dict[str, set[str]]
 ) -> Iterator[set[str]]:
     """
-    Compute Strongly Connected Components of a directed graph
+    Compute Strongly Connected Components of a directed graph.
 
     Args:
       vertices: the labels for the vertices
@@ -1233,9 +1242,9 @@ def strongly_connected_components(
 
     Returns:
       An iterator yielding strongly connected components, each
-      represented as a set of vertices.  Each input vertex will occur
+      represented as a set of vertices. Each input vertex will occur
       exactly once; vertices not part of a SCC are returned as
-      singleton sets
+      singleton sets.
 
     From http://code.activestate.com/recipes/578507/
     """
@@ -1272,13 +1281,13 @@ def find_cycles_in_scc(
     graph: dict[str, set[str]], scc: set[str], start: str
 ) -> Iterable[list[str]]:
     """
-    Find cycles in SCC emanating from start
+    Find cycles in SCC emanating from start.
 
     Yields lists of the form ['A', 'B', 'C', 'A'], which means there's
-    a path from A -> B -> C -> A.  The first item is always the start
-    argument, but the last item may be another element, e.g.  ['A',
+    a path from A -> B -> C -> A. The first item is always the start
+    argument, but the last item may be another element, e.g. ['A',
     'B', 'C', 'B'] means there's a path from A to B and there's a
-    cycle from B to C and back
+    cycle from B to C and back.
     """
     # Basic input checks
     assert start in scc, (start, scc)
@@ -1320,7 +1329,7 @@ del _get_indent_closure
 
 def memoize[F: Callable[..., Any], P: GrammarParser](method: F) -> F:
     """
-    memoization decorator for grammar parser methods
+    Memoization decorator for grammar parser methods.
     """
     method_name = method.__name__
 
@@ -1379,7 +1388,7 @@ def memoize[F: Callable[..., Any], P: GrammarParser](method: F) -> F:
 
 class GrammarTokenizer:
     """
-    Caching wrapper for the tokenize module
+    Caching wrapper for the tokenize module.
     """
 
     _tokens: list[tokenize.TokenInfo]
@@ -1459,7 +1468,7 @@ class GrammarTokenizer:
 
 class GrammarParser:
     """
-    Parser that reads grammar specification files and builds a Grammar object
+    Parser that reads grammar specification files and builds a Grammar object.
     """
 
     def __init__(
@@ -1484,7 +1493,7 @@ class GrammarParser:
     @memoize
     def _accept(self, token_type: int | str) -> tokenize.TokenInfo | None:
         """
-        Accept a token of the given type or value; returns the TokenInfo or None
+        Accept a token of the given type or value; returns the TokenInfo or None.
         """
         while True:
             mark = self.mark()
@@ -1516,7 +1525,7 @@ class GrammarParser:
 
     def _negative_lookahead(self, func: Callable[..., object], *args: object) -> bool:
         """
-        Run func in negative lookahead mode: succeed only if func would fail
+        Run func in negative lookahead mode: succeed only if func would fail.
         """
         mark = self.mark()
         ok = func(*args)
@@ -2007,7 +2016,7 @@ class GrammarParser:
 
 class InvalidNodeVisitor(GrammarVisitor):
     """
-    Detect nodes that are marked 'invalid...' for unreachable/diagnostic purposes
+    Detect nodes that are marked 'invalid...' for unreachable/diagnostic purposes.
     """
 
     def visit_NameLeaf(self, node: NameLeaf) -> bool:
@@ -2056,10 +2065,10 @@ class InvalidNodeVisitor(GrammarVisitor):
 
 class PythonCallMakerVisitor(GrammarVisitor):
     """
-    Build Python call expressions for grammar elements
+    Build Python call expressions for grammar elements.
 
     Produces (name, call) pairs where 'call' is a Python snippet invoking
-    the corresponding parser method/token acceptor
+    the corresponding parser method/token acceptor.
     """
 
     def __init__(self, parser_generator: ParserGenerator):
@@ -2168,7 +2177,7 @@ class PythonCallMakerVisitor(GrammarVisitor):
 
 class UsedNamesVisitor(ast.NodeVisitor):
     """
-    AST visitor used to collect all Name nodes inside parsed action code
+    AST visitor used to collect all Name nodes inside parsed action code.
     """
 
     def generic_visit(self, node: ast.AST) -> set[str]:
@@ -2188,9 +2197,9 @@ class UsedNamesVisitor(ast.NodeVisitor):
 
 class PythonParserGenerator(ParserGenerator, GrammarVisitor):
     """
-    Generate Python parser source code from a Grammar object
+    Generate Python parser source code from a Grammar object.
     Responsible for emitting the parser class, methods for each rule, and
-    wiring up keyword/soft-keyword sets
+    wiring up keyword/soft-keyword sets.
     """
 
     def __init__(
