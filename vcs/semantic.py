@@ -140,6 +140,9 @@ class Scope:
     def lookup_local(self, name: str) -> Symbol | None:
         return self._symbols.get(name)
 
+    def get_symbols(self) -> list[Symbol]:
+        return list(self._symbols.values())
+
     def lookup(self, name: str) -> Symbol | None:
         scope = self
         while scope is not None:
@@ -207,6 +210,14 @@ class SymbolTable:
 
     def is_declared_in_current_scope(self, name: str) -> bool:
         return self.cur_scope.lookup_local(name) is not None
+
+    def get_locals(self) -> list[Symbol]:
+        result = []
+        scope = self.cur_scope
+        while scope and scope is not self.global_scope:
+            result.extend(scope.get_symbols())
+            scope = scope.enclosing
+        return result
 
     def register_name(self, name: str, type_info: TypeInfo):
         self.declare_var(name, type_info)
@@ -325,7 +336,7 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
 
     def visit_Module(self, node: ast.Module):
         # Entry point
-        scope = self.enter_scope()
+        scope = self.symtab.global_scope
         node.annotate_scope(scope)
 
         # First pass: collect all function signatures
@@ -346,8 +357,6 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
         # Second pass: process function bodies
         for sub in node.body:
             self.visit(sub)
-    
-        self.exit_scope()
 
     def visit_FunctionDeclaration(self, node: ast.FunctionDeclaration):
         # Create scope, declare parameters, and type-check the function body
@@ -550,6 +559,7 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
 
         # Check type compatibility for various operator categories
         all_int = isinstance(lhs_type, IntTypeInfo) and isinstance(rhs_type, IntTypeInfo)
+        all_bool = isinstance(lhs_type, BoolTypeInfo) and isinstance(rhs_type, BoolTypeInfo)
         all_float = isinstance(lhs_type, FloatTypeInfo) and isinstance(rhs_type, FloatTypeInfo)
         int_float = (
             isinstance(lhs_type, IntTypeInfo) and isinstance(rhs_type, FloatTypeInfo)
@@ -588,7 +598,7 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
             
             case ast.BinaryBoolOp():
                 # Boolean operators (and, or) return boolean
-                if all_int:
+                if all_int or all_bool:
                     node.annotate_type(BoolTypeInfo())
                     return
                 
@@ -596,6 +606,11 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
                     self.get_error_info_on(node),
                     str(lhs_type), str(rhs_type), node.op.token.value
                 ))
+                node.annotate_type(ErrorTypeInfo())
+                return
+            
+            case _:
+                assert False
     
     def visit_UnaryExpression(self, node: ast.UnaryExpression):
         # Process unary operations (+, -, !) with type checking

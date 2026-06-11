@@ -154,7 +154,7 @@ def get_latest_paper_jar():
         return False
 
 
-def wait_for_rcon(host, port, timeout=45):
+def wait_for_rcon(host, port, timeout):
     utils.print_info("Waiting for server to start...")
     start = time.time()
     while time.time() - start < timeout:
@@ -310,7 +310,7 @@ def main():
         
         logfile = ServerLogFile("server.log")
 
-        if not wait_for_rcon(RCON_HOST, RCON_PORT, timeout=45):
+        if not wait_for_rcon(RCON_HOST, RCON_PORT, timeout=60):
             utils.print_error("Server startup timeout")
             utils.print_warning("Last 10 lines of server.log:")
             lines = logfile.get_text().splitlines()

@@ -32,7 +32,7 @@ class LabelType(SimpleType):
         return 'Label'
 
 
-@dataclass
+@dataclass(frozen=True)
 class PointerType(Type):
     pointee: Type
     
@@ -48,6 +48,9 @@ class FunctionType(Type):
     def __str__(self):
         params = ', '.join(str(t) for t in self.param_types)
         return f'({params}) -> {self.return_type}'
+    
+    def __hash__(self):
+        return id(self)
 
 
 class Value[T: Type]:
@@ -107,7 +110,7 @@ class Constant[T: Type](Value[T]):
 class Instruction: ...
 
 
-@dataclass
+@dataclass(frozen=True)
 class Comment(Instruction):
     value: str
 
@@ -117,7 +120,7 @@ class Comment(Instruction):
         return self.value
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntBinaryInstr(Instruction):
     lhs: Value[IntType]
     rhs: Value[IntType]
@@ -149,7 +152,7 @@ class IMod(IntBinaryInstr):
     _opname = "imod"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FloatBinaryInstr(Instruction):
     lhs: Value[FloatType]
     rhs: Value[FloatType]
@@ -181,7 +184,7 @@ class FMod(FloatBinaryInstr):
     _opname = "fmod"
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntToFloat(Instruction):
     value: NamedValue[IntType]
     target: NamedValue[FloatType]
@@ -190,7 +193,7 @@ class IntToFloat(Instruction):
         return f"{self.target} = itof {self.value}"
     
 
-@dataclass
+@dataclass(frozen=True)
 class FloatToInt(Instruction):
     value: NamedValue[FloatType]
     target: NamedValue[IntType]
@@ -199,7 +202,7 @@ class FloatToInt(Instruction):
         return f"{self.target} = ftoi {self.value}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Not(Instruction):
     value: NamedValue[IntType]
     target: NamedValue[IntType]
@@ -225,7 +228,7 @@ class Or(IntBinaryInstr):
         return f"{self.target} = or {self.lhs}, {self.rhs}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ICmp(Instruction):
     lhs: Value
     rhs: Value
@@ -244,7 +247,7 @@ class ICmp(Instruction):
         return f"{self.target} = icmp {self.op} {self.lhs}, {self.rhs}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FCmp(Instruction):
     lhs: Value
     rhs: Value
@@ -255,7 +258,7 @@ class FCmp(Instruction):
         return f"{self.target} = fcmp {self.op} {self.lhs}, {self.rhs}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntAssign(Instruction):
     value: Value[IntType]
     target: NamedValue[IntType]
@@ -264,7 +267,7 @@ class IntAssign(Instruction):
         return f"{self.target} = int {self.value}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FloatAssign(Instruction):
     value: Value[FloatType]
     target: NamedValue[FloatType]
@@ -273,28 +276,53 @@ class FloatAssign(Instruction):
         return f"{self.target} = float {self.value}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Return(Instruction):
     value: Value | None = None
     
     def __str__(self):
         if self.value:
             return f"ret {self.value}"
-        return f"ret void"
+        return "ret void"
+
+
+@dataclass
+class Push(Instruction):
+    values: list[NamedValue]
+
+    def __str__(self):
+        return f"push {', '.join(str(val) for val in self.values)}"
+
+    def __hash__(self):
+        return id(self)
+
+
+@dataclass
+class Pop(Instruction):
+    values: list[NamedValue]
+
+    def __str__(self):
+        return f"pop {', '.join(str(val) for val in self.values)}"
+
+    def __hash__(self):
+        return id(self)
 
 
 @dataclass
 class Call(Instruction):
     func: Function
-    args: list[Value]
+    args: dict[str, Value]
     target: NamedValue | None = None
     
     def __str__(self):
-        args_str = ', '.join(str(arg) for arg in self.args)
+        args_str = ', '.join(f"{name}={arg}" for name, arg in self.args.items())
         if self.target:
             return f"{self.target} = call {self.func}({args_str})"
         else:
             return f"call {self.func}({args_str})"
+
+    def __hash__(self):
+        return id(self)
         
 
 class BasicBlock(NamedValue):
@@ -307,6 +335,9 @@ class BasicBlock(NamedValue):
     def emit(self, inst: Instruction):
         self.instructions.append(inst)
     
+    def insert(self, index: int, inst: Instruction):
+        self.instructions.insert(index, inst)
+
     def get_content(self):
         block_str = f"{self.name}:"
         for inst in self.instructions:
@@ -324,6 +355,9 @@ class Goto(Instruction):
     
     def __str__(self):
         return f"goto {self.label}"
+    
+    def __hash__(self):
+        return id(self)
 
 
 @dataclass
@@ -334,6 +368,9 @@ class Branch(Instruction):
     
     def __str__(self):
         return f"branch {self.cond} {self.true} {self.false}"
+    
+    def __hash__(self):
+        return id(self)
 
 
 class Function(NamedValue):
@@ -343,7 +380,7 @@ class Function(NamedValue):
         Value.__init__(self, type)
         self.name = name
         self.blocks: list[BasicBlock] = []
-        self.entry_block = BasicBlock("entry", self)
+        self.entry_block = BasicBlock("_", self)
         self.blocks.append(self.entry_block)
         self.param_names = param_names or [f"p{i}" for i in range(len(type.param_types))]
 
@@ -376,6 +413,44 @@ class Module:
             module_str += f"  {func.get_content().replace('\n', '\n  ')}\n"
         return module_str.rstrip()
 
+    def build_call_graph(self) -> CallGraph:
+        call_graph = CallGraph()
+        for func in self.functions:
+            call_graph.add_func(func)
+        for func in self.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, Call):
+                        call_graph.add_call(func, inst.func)
+        return call_graph
+
+
+class CallGraph:
+    def __init__(self):
+        self.func_calls: dict[Function, list[Function]] = {}
+    
+    def add_func(self, func: Function):
+        self.func_calls[func] = []
+
+    def add_call(self, func: Function, callee: Function):
+        if callee not in self.func_calls[func]:
+            self.func_calls[func].append(callee)
+    
+    def is_recursive(self, func: Function) -> bool:
+        visited = set()
+        
+        def _check(func: Function, init: Function) -> bool:
+            if func in visited:
+                return False
+            visited.add(func)
+            
+            for callee in self.func_calls[func]:
+                if callee is init or _check(callee, init):
+                    return True
+            return False
+        
+        return _check(func, func)
+
 
 class IRBuilder:
     def __init__(self):
@@ -392,19 +467,16 @@ class IRBuilder:
     
     def emit(self, inst: Instruction):
         self.cur_block.emit(inst)
-        
+    
+    def insert(self, index: int, inst: Instruction):
+        self.cur_block.insert(index, inst)
+
     def is_terminated(self) -> bool:
         if not self.cur_block.instructions:
             return False
         last = self.cur_block.instructions[-1]
         return isinstance(last, (Return, Branch, Goto))
     
-    def call(self, func: Function, args: list[Value], target: NamedValue | None):
-        if not isinstance(func.type.return_type, VoidType):
-            self.emit(Call(func, args, target))
-        else:
-            self.emit(Call(func, args))
-
 
 class IRProcessor:
     def process(self, inst: Module | Instruction | Value):

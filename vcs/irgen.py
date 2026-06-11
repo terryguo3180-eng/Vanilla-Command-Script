@@ -35,6 +35,9 @@ class IRGenerator(ast.ASTNodeVisitor):
         self._loop_stack: list[tuple[ir.BasicBlock, ir.BasicBlock]] = []  # Stack for break/continue: (break_block, continue_block)
         self._block_id = 0  # Counter for generating unique basic block names
 
+        self._added_locals: dict[sem.Scope, list[ir.NamedValue]] = {}
+        self._call_locals_map: dict[ir.Call, list[ir.NamedValue]] = {}
+
     def generate(self) -> ir.Module | None:
         """
         Run the semantic analysis and generate IR.
@@ -68,15 +71,15 @@ class IRGenerator(ast.ASTNodeVisitor):
         return self.builder.is_terminated()
 
     @overload
-    def _get_irtype(self, semtype: sem.IntTypeInfo | sem.BoolTypeInfo) -> ir.IntType: ...
+    def get_irtype(self, semtype: sem.IntTypeInfo | sem.BoolTypeInfo) -> ir.IntType: ...
     @overload
-    def _get_irtype(self, semtype: sem.FloatTypeInfo) -> ir.FloatType: ...
+    def get_irtype(self, semtype: sem.FloatTypeInfo) -> ir.FloatType: ...
     @overload
-    def _get_irtype(self, semtype: sem.VoidTypeInfo) -> ir.VoidType: ...
+    def get_irtype(self, semtype: sem.VoidTypeInfo) -> ir.VoidType: ...
     @overload
-    def _get_irtype(self, semtype: sem.TypeInfo) -> ir.Type: ...
+    def get_irtype(self, semtype: sem.TypeInfo) -> ir.Type: ...
 
-    def _get_irtype(self, semtype: sem.TypeInfo) -> ir.Type:
+    def get_irtype(self, semtype: sem.TypeInfo) -> ir.Type:
         if isinstance(semtype, (sem.IntTypeInfo, sem.BoolTypeInfo)):
             return ir.IntType()  # Booleans are represented as integers (0/1)
         if isinstance(semtype, sem.FloatTypeInfo):
@@ -85,9 +88,9 @@ class IRGenerator(ast.ASTNodeVisitor):
             return ir.VoidType()
         raise ValueError(f"Unsupported semantic type: {semtype}")
 
-    def _get_irfunc(self, name: str, signature: sem.FunctionTypeInfo) -> ir.Function:
-        return_type = self._get_irtype(signature.return_type)
-        param_types = [self._get_irtype(p.type_info) for p in signature.param_infos]
+    def get_irfunc(self, name: str, signature: sem.FunctionTypeInfo) -> ir.Function:
+        return_type = self.get_irtype(signature.return_type)
+        param_types = [self.get_irtype(p.type_info) for p in signature.param_infos]
         param_names = [p.name for p in signature.param_infos]
         func_type = ir.FunctionType(return_type, param_types)
         return ir.Function(name, func_type, param_names)
@@ -99,12 +102,29 @@ class IRGenerator(ast.ASTNodeVisitor):
 
     def with_scope(self, scope: sem.Scope):
         return self.symtab.with_scope(scope)
+    
+    def add_local_var(self, var: ir.NamedValue):
+        cur_scope = self.symtab.cur_scope
+        assert cur_scope is not self.symtab.global_scope
+        if cur_scope not in self._added_locals:
+            self._added_locals[cur_scope] = []
+        self._added_locals[cur_scope].append(var)
+
+    def get_locals(self) -> list[ir.NamedValue]:
+        local_symbols = self.symtab.get_locals()
+        result = [self._symbol_map[symbol] for symbol in local_symbols]
+        scope = self.symtab.cur_scope
+        while scope and scope is not self.symtab.global_scope:
+            if scope in self._added_locals:
+                result.extend(self._added_locals[scope])
+            scope = scope.enclosing
+        return result
 
     def visit_Module(self, node: ast.Module):
         # First pass: create function declarations
         for sub in node.body:
             if isinstance(sub, ast.FunctionDeclaration):
-                func = self._get_irfunc(sub.name, sub.signature)
+                func = self.get_irfunc(sub.name, sub.signature)
                 self.module.add_func(func)
                 self._func_map[sub.name] = func
                 
@@ -113,13 +133,34 @@ class IRGenerator(ast.ASTNodeVisitor):
                     for param_info in sub.signature.param_infos:
                         symbol = self.symtab.lookup(param_info.name)
                         assert symbol is not None, f"Parameter {param_info.name} not found"
-                        irtype = self._get_irtype(param_info.type_info)
+                        irtype = self.get_irtype(param_info.type_info)
                         param_val = ir.NamedValue(param_info.name, irtype)
                         self._symbol_map[symbol] = param_val
 
         # Second pass: generate function bodies
         for sub in node.body:
             self.visit(sub)
+        
+        # Third pass: transform call instructions - add push/pop instructions
+        # before/after all the recursive calls
+        call_graph = self.module.build_call_graph()
+        
+        for func in self.module.functions:
+            for block in func.blocks:
+                self.builder.set_block(block)
+                i = 0
+                while i < len(block.instructions):
+                    inst = block.instructions[i]
+                    if isinstance(inst, ir.Call):
+                        local_vars = self._call_locals_map[inst]
+                        if not local_vars:
+                            continue
+
+                        if call_graph.is_recursive(func):
+                            self.builder.insert(i, ir.Push(local_vars))
+                            i += 1
+                            self.builder.insert(i + 1, ir.Pop(local_vars))
+                    i += 1
 
     def visit_FunctionDeclaration(self, node: ast.FunctionDeclaration):
         func = self._func_map[node.name]
@@ -160,7 +201,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         name = node.name
         symbol = self.symtab.lookup(name)
         assert symbol is not None
-        irtype = self._get_irtype(symbol.type_info)
+        irtype = self.get_irtype(symbol.type_info)
 
         # Create the variable
         target = ir.NamedValue(name, irtype)
@@ -242,6 +283,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         # Ensure the condition is in a NamedValue (temporary or variable)
         if not isinstance(test, ir.NamedValue):
             temp = self.builder.new_temp(ir.IntType())
+            self.add_local_var(temp)
             self.emit(ir.IntAssign(test, temp))
             test = temp
 
@@ -297,6 +339,7 @@ class IRGenerator(ast.ASTNodeVisitor):
         test = self.visit(node.test)
         if not isinstance(test, ir.NamedValue):
             temp = self.builder.new_temp(ir.IntType())
+            self.add_local_var(temp)
             self._emit_assign(test, temp)
             test = temp
         self.emit(ir.Branch(test, body_block, end_block))
@@ -343,6 +386,7 @@ class IRGenerator(ast.ASTNodeVisitor):
             test = self.visit(node.test)
             if not isinstance(test, ir.NamedValue):
                 temp = self.builder.new_temp(ir.IntType())
+                self.add_local_var(temp)
                 self._emit_assign(test, temp)
                 test = temp
             self.emit(ir.Branch(test, body_block, end_block))
@@ -382,8 +426,9 @@ class IRGenerator(ast.ASTNodeVisitor):
         with self._with_expression(node):
             lhs = self.visit(node.lhs)
             rhs = self.visit(node.rhs)
-            target_type = self._get_irtype(node.type_info)
+            target_type = self.get_irtype(node.type_info)
             target = self.builder.new_temp(target_type)
+            self.add_local_var(target)
 
             if isinstance(node.op, ast.ArithmeticOp):
                 # Arithmetic operations (+, -, *, /, %)
@@ -451,8 +496,9 @@ class IRGenerator(ast.ASTNodeVisitor):
     def visit_UnaryExpression(self, node: ast.UnaryExpression) -> ir.Value:
         with self._with_expression(node):
             operand = self.visit(node.operand)
-            target_type = self._get_irtype(node.type_info)
+            target_type = self.get_irtype(node.type_info)
             target = self.builder.new_temp(target_type)
+            self.add_local_var(target)
 
             if isinstance(node.op, ast.NotOp):
                 # Logical NOT
@@ -498,18 +544,23 @@ class IRGenerator(ast.ASTNodeVisitor):
             assert signature is not None
             
             # Evaluate arguments in the correct order (already bound by semantic analyzer)
-            args = [self.visit(bound[p.name]) for p in signature.param_infos]
+            args = {p.name: self.visit(bound[p.name]) for p in signature.param_infos}
 
             # Generate the call instruction
             return_type = ir_func.type.return_type
             if isinstance(return_type, ir.VoidType):
                 # Void function - no return value
-                self.emit(ir.Call(ir_func, args))
+                inst = ir.Call(ir_func, args)
+                self.emit(inst)
+                self._call_locals_map[inst] = self.get_locals()
                 return None
             else:
                 # Non-void function - store result in a temporary
                 target = self.builder.new_temp(return_type)
-                self.emit(ir.Call(ir_func, args, target))
+                inst = ir.Call(ir_func, args, target)
+                self._call_locals_map[inst] = self.get_locals()
+                self.add_local_var(target)
+                self.emit(inst)
                 return target
 
     def visit_Constant(self, node: ast.Constant) -> ir.Constant:

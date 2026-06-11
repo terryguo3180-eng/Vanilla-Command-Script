@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+import json
 from typing import ClassVar
+import zipfile
 
 from vcs import utils
 
 
-class Command: ...
+class Command:
+    def __init__(self, cmd: str):
+        self.cmd = cmd
+
+    def __str__(self):
+        return self.cmd
 
 
 @dataclass
@@ -27,6 +34,15 @@ class CommandValue: ...
 class ScoreVar(CommandValue):
     name: str
     objective: str
+
+    _objectives: ClassVar[set[str]] = set()
+
+    def __post_init__(self):
+        self._objectives.add(self.objective)
+    
+    @classmethod
+    def get_objectives(cls):
+        return cls._objectives
 
     def __str__(self):
         return f"{self.name} {self.objective}"
@@ -152,11 +168,47 @@ class StoreScore(ExecuteClause):
     target: ScoreVar
     mode: StoreMode
 
+    def __str__(self):
+        return f"store {self.mode} score {self.target}"
+
+
+@dataclass
+class StoreStorage(ExecuteClause):
+    target: StoragePath
+    mode: StoreMode
+    type: NBTType
+    scale: int | float
+
+    def __str__(self):
+        return f"store {self.mode} {self.target} {self.type} {self.scale}"
+
+
+class NBTType:
+    _str: str
+
+    def __str__(self):
+        return self._str
+
+
+class IntType(NBTType):
+    _str = "int"
+
+
+class FloatType(NBTType):
+    _str = "float"
+
 
 class StoreMode(metaclass=utils.SingletonMeta): ...
 
-class Result(StoreMode): ...
-class Success(StoreMode): ...
+
+class Result(StoreMode):
+    def __str__(self):
+        return "result"
+
+
+class Success(StoreMode):
+    def __str__(self):
+        return "success"
 
 
 @dataclass
@@ -184,6 +236,81 @@ class IfScore(ExecuteClause):
             case _:
                 assert isinstance(self.op, utils.LeOp)
                 return f"if score {self.lhs} matches ..{value}"
+
+
+@dataclass
+class StoragePath:
+    namespace: str
+    path: str
+
+    def __getattr__(self, name):
+        return StoragePath(self.namespace, f"{self.path}.{name}")
+    
+    def __getitem__(self, key):
+        return StoragePath(self.namespace, f"{self.path}[{key}]")
+
+    def __str__(self):
+        return f"storage {self.namespace} {self.path}"
+
+
+@dataclass
+class StorageGet(Command):
+    path: StoragePath
+
+    def __str__(self):
+        return f"data get {self.path}"
+
+
+@dataclass
+class StorageDel(Command):
+    path: StoragePath
+
+    def __str__(self):
+        return f"data remove {self.path}"
+
+
+@dataclass
+class ImmNBT(CommandValue):
+    value: str
+
+    def __str__(self):
+        return self.value
+
+
+@dataclass
+class StorageSetValue(Command):
+    path: StoragePath
+    value: ImmNBT
+
+    def __str__(self):
+        return f"data modify {self.path} set value {self.value}"
+
+
+@dataclass
+class StorageSetFrom(Command):
+    target: StoragePath
+    source: StoragePath
+
+    def __str__(self):
+        return f"data modify {self.target} set from {self.source}"
+
+
+@dataclass
+class StorageAppendValue(Command):
+    path: StoragePath
+    value: ImmNBT
+
+    def __str__(self):
+        return f"data modify {self.path} append value {self.value}"
+
+
+@dataclass
+class StorageAppendFrom(Command):
+    target: StoragePath
+    source: StoragePath
+
+    def __str__(self):
+        return f"data modify {self.target} append value {self.source}"
 
 
 @dataclass
@@ -232,10 +359,15 @@ class MCFunction:
 class Datapack:
     def __init__(self, namespace: str):
         self.namespace = namespace
+        self.consts: set[int] = set()
+        self.const_obj = f"{namespace}.const"
         self.mcfunctions: dict[str, MCFunction] = {}
     
-    def add_func(self, name: str):
-        mcf = MCFunction(self.namespace, name)
+    def add_func(self, name: str, mcf: MCFunction | None = None):
+        if mcf is None:
+            mcf = MCFunction(self.namespace, name)
+        
+        assert name == mcf.name
         self.mcfunctions[name] = mcf
         return mcf
     
@@ -244,9 +376,40 @@ class Datapack:
 
     def __str__(self):
         datapack_str = f"namespace {self.namespace}:\n"
-        for name, mcf in self.mcfunctions.items():
+        for mcf in self.mcfunctions.values():
             datapack_str += f"  {mcf.get_content().replace('\n', '\n  ')}\n"
         return datapack_str.rstrip()
+
+    def add_const(self, const: int):
+        self.consts.add(const)
+
+    def build_setup(self):
+        setup = self.add_func('.')
+        objectives = ScoreVar.get_objectives()
+        for obj in sorted(objectives):
+            setup.emit(Command(f"scoreboard objectives add {obj} dummy"))
+        for const in sorted(self.consts):
+            setup.emit(ScoreSet(ScoreVar(str(const), self.const_obj), ImmValue(const)))
+    
+    def write_zip(self, path: str, description: str):
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            pack_mcmeta = {
+                "pack": {
+                    "description": description,
+                    "min_format": [4, 0],
+                    "max_format": [99, 0],
+                    "pack_format": 10,
+                    "supported_formats": [4, 10]
+                }
+            }
+            zf.writestr("pack.mcmeta", json.dumps(pack_mcmeta, indent=4))
+            function_dir = f"data/{self.namespace}/function"
+            for mcf in self.mcfunctions.values():
+                name = mcf.name
+                zf.writestr(
+                    f"{function_dir}/{name}.mcfunction",
+                    "\n".join(str(cmd) for cmd in mcf.commands)
+                )
 
 
 class DatapackBuilder:
@@ -258,8 +421,8 @@ class DatapackBuilder:
         self.consts: set[int] = set()
         self.const_obj = f"{namespace}.const"
 
-    def add_func(self, name: str):
-        return self.datapack.add_func(name)
+    def add_func(self, name: str, mcf: MCFunction | None = None):
+        return self.datapack.add_func(name, mcf)
 
     def get_func(self, name: str):
         return self.datapack.get_func(name)
@@ -286,6 +449,6 @@ class DatapackBuilder:
             self.emit(op(lhs, rhs))
             return
 
-        self.consts.add(rhs.value)
-        self.emit(op(lhs, ScoreVar(str(rhs.value), self.const_obj)))
+        self.datapack.add_const(rhs.value)
+        self.emit(op(lhs, ScoreVar(str(rhs.value), self.datapack.const_obj)))
     

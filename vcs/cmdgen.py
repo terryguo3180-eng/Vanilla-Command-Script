@@ -12,7 +12,9 @@ class CommandGenerator(ir.IRProcessor):
         self.irgen = irgen
         self.builder = cmd.DatapackBuilder(self.namespace)
 
+        self.call_graph: ir.CallGraph
         self.cur_func: ir.Function
+        self.frame_path = cmd.StoragePath(self.namespace, "frames")
 
     @overload
     def process(self, inst: ir.Module) -> None: ...
@@ -35,6 +37,7 @@ class CommandGenerator(ir.IRProcessor):
         if module is None:
             return None
         self.process(module)
+        self.builder.datapack.build_setup()
         return self.builder.datapack
 
     def emit(self, command: cmd.Command):
@@ -51,8 +54,8 @@ class CommandGenerator(ir.IRProcessor):
     def with_func(self, name: str):
         return self.builder.with_func(name)
     
-    def add_func(self, name: str):
-        return self.builder.add_func(name)
+    def add_func(self, name: str, mcf: cmd.MCFunction | None = None):
+        return self.builder.add_func(name, mcf)
     
     def get_func(self, name: str):
         return self.builder.get_func(name)
@@ -61,17 +64,17 @@ class CommandGenerator(ir.IRProcessor):
         return f"{block.func.name}/{block.name}"
         
     def process_Module(self, mod: ir.Module):
+        self.call_graph = mod.build_call_graph()
+
         for func in mod.functions:
-            self.add_func(func.name)
+            for block in func.blocks:
+                self.add_func(self._get_block_mcfname(block))
 
         for func in mod.functions:
             self.cur_func = func
             self.process(func)
     
     def process_Function(self, func: ir.Function):
-        for block in func.blocks:
-            self.add_func(self._get_block_mcfname(block))
-
         for block in func.blocks:
             with self.with_func(self._get_block_mcfname(block)):
                 self.process(block)
@@ -218,7 +221,51 @@ class CommandGenerator(ir.IRProcessor):
         self.emit(cmd.ScoreSet(target_var, value_var))
     
     def process_Call(self, inst: ir.Call):
-        ...
+        callee = self.get_func(self._get_block_mcfname(inst.func.entry_block))
+        assert callee is not None
+
+        for name, value in inst.args.items():
+            if ir.int_typed(value):
+                var = cmd.ScoreVar(name, inst.func.name)
+                self.emit(cmd.ScoreSet(var, self.process(value)))
+            else:
+                assert False
+
+        if inst.target is None:
+            self.emit(cmd.Call(callee))
+        elif ir.int_typed(inst.target):
+            var = self.process(inst.target)
+            self.emit(cmd.Execute([cmd.StoreScore(var, cmd.Result())], cmd.Call(callee)))
+        else:
+            assert False
+    
+    def process_Push(self, inst: ir.Push):
+        self.emit(cmd.StorageAppendValue(
+            self.frame_path, cmd.ImmNBT('{}')
+        ))
+        cur_frame = self.frame_path[-1]
+        for i, value in enumerate(inst.values):
+            if ir.int_typed(value):
+                var = self.process(value)
+                self.emit(cmd.Execute([
+                    cmd.StoreStorage(
+                        getattr(cur_frame, f"v{i}"), cmd.Result(), cmd.IntType(), 1
+                    )
+                ], cmd.ScoreGet(var)))
+            else:
+                assert False
+    
+    def process_Pop(self, inst: ir.Pop):
+        cur_frame = self.frame_path[-1]
+        for i, value in enumerate(inst.values):
+            if ir.int_typed(value):
+                var = self.process(value)
+                self.emit(cmd.Execute([
+                    cmd.StoreScore(var, cmd.Result())
+                ], cmd.StorageGet(getattr(cur_frame, f"v{i}"))))
+            else:
+                assert False
+        self.emit(cmd.StorageDel(cur_frame))
 
     def process_Return(self, inst: ir.Return):
         if inst.value is None:
@@ -258,7 +305,7 @@ class CommandGenerator(ir.IRProcessor):
             cmd.ReturnRun(cmd.Call(body_mcf))
         ))
         # function <false>
-        self.emit(cmd.Call(else_mcf))
+        self.emit(cmd.ReturnRun(cmd.Call(else_mcf)))
 
     def process_NamedValue(self, value: ir.NamedValue):
         objective = self.cur_func.name

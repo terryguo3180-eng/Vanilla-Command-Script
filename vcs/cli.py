@@ -84,6 +84,18 @@ class CommandLineInterface:
             help="Namespace for the program"
         )
         argparser.add_argument(
+            "-d",
+            "--description",
+            metavar="DESCRIPTION",
+            help="Description for the program"
+        )
+        argparser.add_argument(
+            "-o",
+            "--output",
+            required=True,
+            help="Path for the output datapack (in .zip format)"
+        )
+        argparser.add_argument(
             "--skip-comments",
             action="store_true",
             help="Skip all the comment tokens",
@@ -120,12 +132,17 @@ class CommandLineInterface:
             help="Print stats of the parser",
         )
         argparser.add_argument(
-            "--dump-const-fold",
+            "--dump-cf",
             action="store_true",
             help="Print the generated constant-folded AST",
         )
         argparser.add_argument(
             "--dump-ir",
+            action="store_true",
+            help="Print the generated IR (Intermediate Representation)",
+        )
+        argparser.add_argument(
+            "--dump-cg",
             action="store_true",
             help="Print the generated IR (Intermediate Representation)",
         )
@@ -139,6 +156,9 @@ class CommandLineInterface:
 
         filename: str | None = args.filename
         namespace: str | None = args.namespace
+        description: str | None = args.description
+
+        self.output: str = args.output
 
         self.skip_comments: bool = args.skip_comments
         self.tabsize: bool = args.tabsize
@@ -147,15 +167,16 @@ class CommandLineInterface:
         self.dump_ast: bool = args.dump_ast
         self.dump_tree: bool = args.dump_tree
         self.parse_stats: bool = args.parse_stats
-        self.dump_const_fold: bool = args.dump_const_fold
+        self.dump_cf: bool = args.dump_cf
         self.dump_ir: bool = args.dump_ir
+        self.dump_cg: bool = args.dump_cg
         self.dump_cmds: bool = args.dump_cmds
 
         stages = [
             (['dump_tokens', 'lex_stats'], self.lexer_cli, []),
             (['dump_ast', 'dump_tree', 'parse_stats'], self.parser_cli, ['vcs.lexer']),
-            (['dump_const_fold'], self.constfold_cli, ['vcs.lexer', 'vcs.parser']),
-            (['dump_ir'], self.irgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic']),
+            (['dump_cf'], self.constfold_cli, ['vcs.lexer', 'vcs.parser']),
+            (['dump_ir', 'dump_cg'], self.irgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic']),
             (['dump_cmds'], self.cmdgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic', 'vcs.irgen']),
         ]
 
@@ -175,7 +196,7 @@ class CommandLineInterface:
             "vcs.semantic": self.semantic_cli,
             "vcs.irgen": self.irgen_cli,
             "vcs.cmdgen": self.cmdgen_cli,
-            "vcs.cli": self.cmdgen_cli,
+            "vcs.cli": self.main_cli,
         }.get(modname)
 
         if func is None:
@@ -204,6 +225,7 @@ class CommandLineInterface:
 
         self.filename: str = filename
         self.namespace: str = namespace or path.stem
+        self.description: str = description or self.namespace
 
         with open(path, encoding="utf8") as f:
             source = f.read()
@@ -268,7 +290,7 @@ class CommandLineInterface:
     def constfold_cli(self, filename: str, source: str):
         _, _, constfolder, *_ = self.build_pipeline(filename, source)
         folded = constfolder.fold()
-        if self.dump_const_fold:
+        if self.dump_cf:
             utils.print_info(str(folded))
         self.print_errors_if_any()
 
@@ -279,9 +301,16 @@ class CommandLineInterface:
     
     def irgen_cli(self, filename: str, source: str):
         _, _, _, _, irgen, *_ = self.build_pipeline(filename, source)
-        module = irgen.generate()
-        if module is not None and self.dump_ir:
-            utils.print_info(str(module))
+        mod = irgen.generate()
+        if mod is not None and (self.dump_ir or self.dump_cg):
+            if self.dump_ir:
+                utils.print_info(str(mod))
+                
+            if self.dump_cg:
+                call_graph = mod.build_call_graph()
+                for src, dsts in call_graph.func_calls.items():
+                    utils.print_info(f"{src.name} -> {', '.join(dst.name for dst in dsts)}")
+
         self.print_errors_if_any()
     
     def cmdgen_cli(self, filename: str, source: str):
@@ -289,6 +318,15 @@ class CommandLineInterface:
         datapack = cmdgen.generate()
         if datapack is not None and self.dump_cmds:
             utils.print_info(str(datapack))
+        self.print_errors_if_any()
+    
+    def main_cli(self, filename: str, source: str):
+        _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
+        datapack = cmdgen.generate()
+        if datapack is not None and self.dump_cmds:
+            utils.print_info(str(datapack))
+            datapack.write_zip(self.output, self.description)
+
         self.print_errors_if_any()
 
 
