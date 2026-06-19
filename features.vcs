@@ -1,7 +1,7 @@
 const INVALID_INT: Int = 0
 
 
-find_primes(n: Int) -> &List<Int>:
+find_primes(n: Int) -> List<Int>:
     if n < 2:
         return []
     primes: List<Int> = alloc [2]
@@ -13,7 +13,7 @@ find_primes(n: Int) -> &List<Int>:
         else:
             primes += i
 
-    return &primes
+    return primes
 
 parse_int(str: String) -> Int:
     num: Int = 0
@@ -25,7 +25,7 @@ parse_int(str: String) -> Int:
     else:
         sign = 1
 
-    for pass; str != ""; str = str[1:]:
+    for ; str != ""; str = str[1:]:
         char: String = str[0]
         digit: Int
 
@@ -71,9 +71,9 @@ async main():
                     tell player "Invalid integer"
                 continue
 
-            primes: &List<Int> = find_primes(num)
+            primes: List<Int> = find_primes(num)
             count: Int = len primes
             for p: Int = 0; p < count; p += 1:
-                tell player "\{(*primes)[p]}"
+                tell player "\{primes[p]}"
         
         sleep 1t
