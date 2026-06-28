@@ -225,6 +225,14 @@ class AugAssignStatement(Statement):
         self.value = value
 
 
+class TellStatement(Statement):
+    __slots__ = ("value",)
+
+    def __init__(self, value: Expression, **loc):
+        super().__init__(**loc)
+        self.value = value
+
+
 class ReturnStatement(Statement):
     __slots__ = ("value",)
 

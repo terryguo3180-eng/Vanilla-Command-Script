@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+import zipfile
+
 from contextlib import contextmanager
 from dataclasses import dataclass
-import json
-from typing import ClassVar
-import zipfile
+from typing import ClassVar, Literal
 
 from vcs import utils
 
@@ -335,6 +336,30 @@ class ReturnRun(Command):
 
     def __str__(self):
         return f"return run {self.run_clause}"
+
+
+@dataclass
+class Tellraw(Command):
+    selector: Selector
+    content: dict | str
+
+    def __str__(self):
+        if isinstance(self.content, dict):
+            content_str = json.dumps(self.content, separators=(',', ':'))
+        else:
+            content_str = self.content
+        return f"tellraw {self.selector} {content_str}"
+
+
+@dataclass
+class Selector:
+    family: Literal['a'] | Literal['e'] | Literal['p'] | Literal['r'] | Literal['s'] | Literal['n']
+    args: dict[str, str]
+
+    def __str__(self):
+        if not self.args:
+            return f"@{self.family}"
+        return f"@{self.family}[{','.join(f'{n}={v}' for n, v in self.args.items())}]"
 
 
 class MCFunction:

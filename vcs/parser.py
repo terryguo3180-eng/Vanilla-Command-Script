@@ -670,7 +670,7 @@ class Parser:
 
     @memoize
     def _simple_stmt(self) -> ast . Statement | None:
-        # simple_stmt: var_decl | assign_stmt | augassign_stmt | 'return' expression? | 'break' | 'continue' | 'pass' | expression
+        # simple_stmt: var_decl | assign_stmt | augassign_stmt | 'tell' expression | 'return' expression? | 'break' | 'continue' | 'pass' | expression
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -688,6 +688,15 @@ class Parser:
             (augassign_stmt := self._augassign_stmt())
         ):
             return augassign_stmt
+        self._reset(mark)
+        if (
+            (self._accept('tell'))
+            and
+            (v := self._expression())
+        ):
+            tok = self._last_nonblank_token()
+            end_lineno, end_column = tok.end_lineno, tok.end_column
+            return ast.TellStatement(value=v, filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (self._accept('return'))
@@ -1912,7 +1921,7 @@ class Parser:
         self._reset(mark)
         return None
 
-    KEYWORDS = ('Bool', 'Float', 'Int', 'and', 'break', 'continue', 'else', 'false', 'for', 'if', 'not', 'or', 'pass', 'return', 'true', 'while')
+    KEYWORDS = ('Bool', 'Float', 'Int', 'and', 'break', 'continue', 'else', 'false', 'for', 'if', 'not', 'or', 'pass', 'return', 'tell', 'true', 'while')
     SOFT_KEYWORDS = ()
 
 

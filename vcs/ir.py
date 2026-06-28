@@ -373,6 +373,18 @@ class Branch(Instruction):
         return id(self)
 
 
+@dataclass
+class Tell(Instruction):
+    value: Value[IntType]
+
+    def __str__(self):
+        return f"tell {self.value}"
+    
+    def __hash__(self):
+        return id(self)
+
+
+
 class Function(NamedValue):
     type: FunctionType
 

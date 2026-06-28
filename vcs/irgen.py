@@ -270,6 +270,9 @@ class IRGenerator(ast.ASTNodeVisitor):
     def visit_PassStatement(self, node: ast.PassStatement):
         pass
 
+    def visit_TellStatement(self, node: ast.TellStatement):
+        self.emit(ir.Tell(self.visit(node.value)))
+
     def visit_ReturnStatement(self, node: ast.ReturnStatement):
         if node.value is None:
             self.emit(ir.Return())

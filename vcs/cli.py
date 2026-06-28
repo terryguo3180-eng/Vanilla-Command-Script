@@ -323,8 +323,7 @@ class CommandLineInterface:
     def main_cli(self, filename: str, source: str):
         _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
         datapack = cmdgen.generate()
-        if datapack is not None and self.dump_cmds:
-            utils.print_info(str(datapack))
+        if datapack is not None:
             datapack.write_zip(self.output, self.description)
 
         self.print_errors_if_any()

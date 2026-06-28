@@ -307,6 +307,17 @@ class CommandGenerator(ir.IRProcessor):
         # function <false>
         self.emit(cmd.ReturnRun(cmd.Call(else_mcf)))
 
+    def process_Tell(self, inst: ir.Tell):
+        var = self.process(inst.value)
+
+        if isinstance(var, cmd.ImmValue):
+            self.emit(cmd.Tellraw(cmd.Selector('a', {}), str(var.value)))
+        else:
+            self.emit(cmd.Tellraw(
+                cmd.Selector('a', {}),
+                {"score": {"name": var.name, "objective": var.objective}}
+            ))
+
     def process_NamedValue(self, value: ir.NamedValue):
         objective = self.cur_func.name
         if ir.int_typed(value):

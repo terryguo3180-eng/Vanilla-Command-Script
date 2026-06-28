@@ -50,10 +50,11 @@ simple_stmt[ast.Statement]:
     | var_decl
     | assign_stmt
     | augassign_stmt
-    | kw='return' v=expression? { ast.ReturnStatement(value=v, LOCATIONS) }
-    | kw='break' { ast.BreakStatement(LOCATIONS) }
-    | kw='continue' { ast.ContinueStatement(LOCATIONS) }
-    | kw='pass' { ast.PassStatement(LOCATIONS) }
+    | 'tell' v=expression { ast.TellStatement(value=v, LOCATIONS) }
+    | 'return' v=expression? { ast.ReturnStatement(value=v, LOCATIONS) }
+    | 'break' { ast.BreakStatement(LOCATIONS) }
+    | 'continue' { ast.ContinueStatement(LOCATIONS) }
+    | 'pass' { ast.PassStatement(LOCATIONS) }
     | e=expression { ast.ExpressionStatement(expression=e, LOCATIONS) }
 
 assign_stmt[ast.AssignStatement]:
