@@ -467,13 +467,16 @@ class DatapackBuilder:
 
     def emit_binary_score_op(self, op: type[ScoreOperation], lhs: ScoreVar, rhs: ScoreVar | ImmValue):
         if not issubclass(op, BinaryScoreOperation):
+            # This is a simple score operation (scoreboard players set/add/remove)
             self.emit(op(lhs, rhs))
             return
         
         if isinstance(rhs, ScoreVar):
+            # This is a binary score operation (scoreboard players operation)
             self.emit(op(lhs, rhs))
             return
 
+        # This is a binary score operation with an immediate value
         self.datapack.add_const(rhs.value)
         self.emit(op(lhs, ScoreVar(str(rhs.value), self.datapack.const_obj)))
     

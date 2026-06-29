@@ -54,6 +54,18 @@ class BoolTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
         return isinstance(other, BoolTypeInfo)
 
 
+class FixedTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
+    """
+    Represents a fixed-point numeric type, with a scale factor of 1000.
+    """
+
+    def __str__(self):
+        return "Fixed"
+    
+    def __eq__(self, other):
+        return isinstance(other, FixedTypeInfo)
+
+
 class FloatTypeInfo(TypeInfo, metaclass=utils.SingletonMeta):
     """
     Represents the floating-point type (e.g., 3.14, -2.5).
@@ -468,6 +480,8 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
             ))
     
     def _check_bool(self, node: ast.Expression):
+        if isinstance(node.type_info, ErrorTypeInfo):
+            return True
         return isinstance(node.type_info, IntTypeInfo) or isinstance(node.type_info, BoolTypeInfo)
 
     def visit_IfStatement(self, node: ast.IfStatement):
@@ -561,9 +575,18 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
         all_int = isinstance(lhs_type, IntTypeInfo) and isinstance(rhs_type, IntTypeInfo)
         all_bool = isinstance(lhs_type, BoolTypeInfo) and isinstance(rhs_type, BoolTypeInfo)
         all_float = isinstance(lhs_type, FloatTypeInfo) and isinstance(rhs_type, FloatTypeInfo)
+        all_fixed = isinstance(lhs_type, FixedTypeInfo) and isinstance(rhs_type, FixedTypeInfo)
         int_float = (
             isinstance(lhs_type, IntTypeInfo) and isinstance(rhs_type, FloatTypeInfo)
             or isinstance(lhs_type, FloatTypeInfo) and isinstance(rhs_type, IntTypeInfo)
+        )
+        int_fixed = (
+            isinstance(lhs_type, IntTypeInfo) and isinstance(rhs_type, FixedTypeInfo)
+            or isinstance(lhs_type, FixedTypeInfo) and isinstance(rhs_type, IntTypeInfo)
+        )
+        float_fixed = (
+            isinstance(lhs_type, FloatTypeInfo) and isinstance(rhs_type, FixedTypeInfo)
+            or isinstance(lhs_type, FixedTypeInfo) and isinstance(rhs_type, FloatTypeInfo)
         )
 
         match node.op:
@@ -572,10 +595,13 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
                 if all_int:
                     node.annotate_type(IntTypeInfo())
                     return
-                if all_float or int_float:
+                if all_float or int_float or float_fixed:
                     node.annotate_type(FloatTypeInfo())
                     return
-                
+                if all_fixed or int_fixed:
+                    node.annotate_type(FixedTypeInfo())
+                    return
+
                 self.report(err.InvalidBinaryOpTypes(
                     self.get_error_info_on(node),
                     str(lhs_type), str(rhs_type), node.op.token.value
@@ -585,7 +611,7 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
 
             case ast.CompareOp():
                 # Comparison operators return boolean
-                if all_int or all_float or int_float:
+                if all_int or all_float or int_float or all_bool or all_fixed or int_fixed or float_fixed:
                     node.annotate_type(BoolTypeInfo())
                     return
                 
@@ -625,7 +651,7 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
         match op:
             case ast.PosOp() | ast.NegOp():
                 # Unary plus/minus preserve numeric types
-                if isinstance(type_info, (IntTypeInfo, FloatTypeInfo)):
+                if isinstance(type_info, (IntTypeInfo, FloatTypeInfo, FixedTypeInfo)):
                     node.annotate_type(type_info)
                     return
             case ast.NotOp():
@@ -765,6 +791,8 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
         # Determine the type of a constant literal
         if isinstance(node.type, ast.IntType):
             node.annotate_type(IntTypeInfo())
+        elif isinstance(node.type, ast.FixedType):
+            node.annotate_type(FixedTypeInfo())
         elif isinstance(node.type, ast.FloatType):
             node.annotate_type(FloatTypeInfo())
         elif isinstance(node.type, ast.BoolType):
@@ -788,6 +816,9 @@ class SemanticAnalyzer(ast.ASTNodeVisitor):
     def visit_IntType(self, node: ast.IntType):
         return IntTypeInfo()
     
+    def visit_FixedType(self, node: ast.FixedType):
+        return FixedTypeInfo()
+
     def visit_FloatType(self, node: ast.FloatType):
         return FloatTypeInfo()
     

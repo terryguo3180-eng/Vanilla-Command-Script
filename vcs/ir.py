@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, TypeGuard, overload
 
+from vcs import semantic as sem
 from vcs import utils
 
 
@@ -15,6 +16,11 @@ class SimpleType(Type, metaclass=utils.SingletonMeta): ...
 class IntType(SimpleType):
     def __str__(self):
         return f'Int'
+
+
+class FixedType(SimpleType):
+    def __str__(self):
+        return f'Fixed'
 
 
 class FloatType(SimpleType):
@@ -58,6 +64,8 @@ class Value[T: Type]:
         self.type = type
 
 
+# Python's type system is stupid
+
 @overload
 def int_typed[T: Type](value: NamedValue[T]) -> TypeGuard[NamedValue[IntType]]: ...
 @overload
@@ -78,6 +86,16 @@ def float_typed[T: Type](value: Value[T]) -> TypeGuard[Value[FloatType]]: ...
 def float_typed(value: Value) -> bool:
     return isinstance(value.type, FloatType)
 
+@overload
+def fixed_typed[T: Type](value: NamedValue[T]) -> TypeGuard[NamedValue[FixedType]]: ...
+@overload
+def fixed_typed[T: Type](value: Constant[T]) -> TypeGuard[Constant[FixedType]]: ...
+@overload
+def fixed_typed[T: Type](value: Value[T]) -> TypeGuard[Value[FixedType]]: ...
+
+def fixed_typed(value: Value) -> bool:
+    return isinstance(value.type, FixedType)
+
 
 class NamedValue[T: Type](Value[T]):
     def __init__(self, name: str, type: T):
@@ -93,16 +111,20 @@ class Constant[T: Type](Value[T]):
         super().__init__(type)
         self._value = value
 
-    @overload
-    def value(self: Constant[IntType]) -> int: ...
-    @overload
-    def value(self: Constant[FloatType]) -> float: ...
-
-    def value(self):
+    def int_value(self: Constant[IntType]) -> int:
+        assert isinstance(self._value, int)
         return self._value
     
+    def fixed_value(self: Constant[FixedType], precision: int) -> int:
+        assert isinstance(self._value, float)
+        return int(round(self._value * precision))
+    
+    def float_value(self: Constant[FloatType]) -> float:
+        assert isinstance(self._value, float)
+        return self._value
+
     def __str__(self):
-        if isinstance(self.type, (IntType, FloatType)):
+        if isinstance(self.type, (IntType, FloatType, FixedType)):
             return str(self._value)
         return super().__str__()
 
@@ -185,6 +207,38 @@ class FMod(FloatBinaryInstr):
 
 
 @dataclass(frozen=True)
+class FixedBinaryInstr(Instruction):
+    lhs: Value[FixedType]
+    rhs: Value[FixedType]
+    target: NamedValue[FixedType]
+
+    _opname: ClassVar[str]
+        
+    def __str__(self):
+        return f"{self.target} = {self._opname} {self.lhs}, {self.rhs}"
+
+
+class XAdd(FixedBinaryInstr):
+    _opname = "xadd"
+
+
+class XSub(FixedBinaryInstr):
+    _opname = "xsub"
+
+
+class XMul(FixedBinaryInstr):
+    _opname = "xmul"
+
+
+class XDiv(FixedBinaryInstr):
+    _opname = "xdiv"
+
+
+class XMod(FixedBinaryInstr):
+    _opname = "xmod"
+
+
+@dataclass(frozen=True)
 class IntToFloat(Instruction):
     value: NamedValue[IntType]
     target: NamedValue[FloatType]
@@ -200,6 +254,42 @@ class FloatToInt(Instruction):
 
     def __str__(self):
         return f"{self.target} = ftoi {self.value}"
+
+
+@dataclass(frozen=True)
+class IntToFixed(Instruction):
+    value: NamedValue[IntType]
+    target: NamedValue[FixedType]
+
+    def __str__(self):
+        return f"{self.target} = itox {self.value}"
+
+
+@dataclass(frozen=True)
+class FixedToInt(Instruction):
+    value: NamedValue[FixedType]
+    target: NamedValue[IntType]
+
+    def __str__(self):
+        return f"{self.target} = xtoi {self.value}"
+
+
+@dataclass(frozen=True)
+class FloatToFixed(Instruction):
+    value: NamedValue[FloatType]
+    target: NamedValue[FixedType]
+
+    def __str__(self):
+        return f"{self.target} = ftox {self.value}"
+
+
+@dataclass(frozen=True)
+class FixedToFloat(Instruction):
+    value: NamedValue[FixedType]
+    target: NamedValue[FloatType]
+
+    def __str__(self):
+        return f"{self.target} = xtof {self.value}"
 
 
 @dataclass(frozen=True)
@@ -230,28 +320,31 @@ class Or(IntBinaryInstr):
 
 @dataclass(frozen=True)
 class ICmp(Instruction):
-    lhs: Value
-    rhs: Value
-    target: NamedValue
+    lhs: Value[IntType]
+    rhs: Value[IntType]
+    target: NamedValue[IntType]
     op: utils.CompareOp
-
-    def __post_init__(self):
-        if not (
-            isinstance(self.lhs.type, IntType)
-            and isinstance(self.rhs.type, IntType)
-            and isinstance(self.target.type, IntType)
-        ):
-            raise ValueError(self)
 
     def __str__(self):
         return f"{self.target} = icmp {self.op} {self.lhs}, {self.rhs}"
 
 
 @dataclass(frozen=True)
+class XCmp(Instruction):
+    lhs: Value[FixedType]
+    rhs: Value[FixedType]
+    target: NamedValue[IntType]
+    op: utils.CompareOp
+
+    def __str__(self):
+        return f"{self.target} = xcmp {self.op} {self.lhs}, {self.rhs}"
+
+
+@dataclass(frozen=True)
 class FCmp(Instruction):
-    lhs: Value
-    rhs: Value
-    target: NamedValue
+    lhs: Value[FloatType]
+    rhs: Value[FloatType]
+    target: NamedValue[IntType]
     op: utils.CompareOp
 
     def __str__(self):
@@ -274,6 +367,15 @@ class FloatAssign(Instruction):
     
     def __str__(self):
         return f"{self.target} = float {self.value}"
+
+
+@dataclass(frozen=True)
+class FixedAssign(Instruction):
+    value: Value[FixedType]
+    target: NamedValue[FixedType]
+    
+    def __str__(self):
+        return f"{self.target} = fixed {self.value}"
 
 
 @dataclass(frozen=True)
@@ -474,6 +576,9 @@ class IRBuilder:
         self._value_counter += 1
         return temp
     
+    def reset_value_counter(self):
+        self._value_counter = 0
+
     def set_block(self, block: BasicBlock):
         self.cur_block = block
     
@@ -488,6 +593,17 @@ class IRBuilder:
             return False
         last = self.cur_block.instructions[-1]
         return isinstance(last, (Return, Branch, Goto))
+
+    def get_irtype(self, semtype: sem.TypeInfo) -> Type:
+        if isinstance(semtype, (sem.IntTypeInfo, sem.BoolTypeInfo)):
+            return IntType()  # Booleans are represented as integers (0/1)
+        if isinstance(semtype, sem.FixedTypeInfo):
+            return FixedType()
+        if isinstance(semtype, sem.FloatTypeInfo):
+            return FloatType()
+        if isinstance(semtype, sem.VoidTypeInfo):
+            return VoidType()
+        raise ValueError(f"Unsupported semantic type: {semtype}")
     
 
 class IRProcessor:

@@ -1402,7 +1402,7 @@ class Parser:
 
     @memoize_left_rec
     def _atom_expr(self) -> ast . Expression | None:
-        # atom_expr: uop atom_expr | atom_expr '(' argument_list? ')' | 'true' | 'false' | NAME | INT | FLOAT | STRING | '(' expression ')'
+        # atom_expr: uop atom_expr | atom_expr '(' argument_list? ')' | 'true' | 'false' | NAME | INT | FLOAT | FIXED | STRING | '(' expression ')'
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -1461,7 +1461,14 @@ class Parser:
         ):
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
-            return ast.Constant(value=float(a.value), type=ast.FloatType(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+            return ast.Constant(value=float(a.value[:-1]), type=ast.FloatType(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+        self._reset(mark)
+        if (
+            (a := self._accept(lex.TokenType.FIXED))
+        ):
+            tok = self._last_nonblank_token()
+            end_lineno, end_column = tok.end_lineno, tok.end_column
+            return ast.Constant(value=float(a.value[:-1]), type=ast.FixedType(), filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (a := self._accept(lex.TokenType.STRING))
@@ -1558,7 +1565,7 @@ class Parser:
 
     @memoize
     def _type(self) -> ast . Type | None:
-        # type_: 'Int' | 'Bool' | 'Float'
+        # type_: 'Int' | 'Bool' | 'Fixed' | 'Float'
         mark = self._mark()
         tok = self._peek()
         start_lineno, start_column = tok.lineno, tok.column
@@ -1575,6 +1582,13 @@ class Parser:
             tok = self._last_nonblank_token()
             end_lineno, end_column = tok.end_lineno, tok.end_column
             return ast.BoolType(filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
+        self._reset(mark)
+        if (
+            (self._accept('Fixed'))
+        ):
+            tok = self._last_nonblank_token()
+            end_lineno, end_column = tok.end_lineno, tok.end_column
+            return ast.FixedType(filename=self.filename, lineno=start_lineno, column=start_column, end_lineno=end_lineno, end_column=end_column)
         self._reset(mark)
         if (
             (self._accept('Float'))
@@ -1921,7 +1935,7 @@ class Parser:
         self._reset(mark)
         return None
 
-    KEYWORDS = ('Bool', 'Float', 'Int', 'and', 'break', 'continue', 'else', 'false', 'for', 'if', 'not', 'or', 'pass', 'return', 'tell', 'true', 'while')
+    KEYWORDS = ('Bool', 'Fixed', 'Float', 'Int', 'and', 'break', 'continue', 'else', 'false', 'for', 'if', 'not', 'or', 'pass', 'return', 'tell', 'true', 'while')
     SOFT_KEYWORDS = ()
 
 

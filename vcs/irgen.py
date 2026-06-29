@@ -35,7 +35,9 @@ class IRGenerator(ast.ASTNodeVisitor):
         self._loop_stack: list[tuple[ir.BasicBlock, ir.BasicBlock]] = []  # Stack for break/continue: (break_block, continue_block)
         self._block_id = 0  # Counter for generating unique basic block names
 
-        self._added_locals: dict[sem.Scope, list[ir.NamedValue]] = {}
+        self._extended_locals: dict[sem.Scope, list[ir.NamedValue]] = {}  # Scope -> temp local variables
+        
+        # Call instruction -> local variables available at the location of that instruction
         self._call_locals_map: dict[ir.Call, list[ir.NamedValue]] = {}
 
     def generate(self) -> ir.Module | None:
@@ -70,23 +72,8 @@ class IRGenerator(ast.ASTNodeVisitor):
     def is_terminated(self) -> bool:
         return self.builder.is_terminated()
 
-    @overload
-    def get_irtype(self, semtype: sem.IntTypeInfo | sem.BoolTypeInfo) -> ir.IntType: ...
-    @overload
-    def get_irtype(self, semtype: sem.FloatTypeInfo) -> ir.FloatType: ...
-    @overload
-    def get_irtype(self, semtype: sem.VoidTypeInfo) -> ir.VoidType: ...
-    @overload
-    def get_irtype(self, semtype: sem.TypeInfo) -> ir.Type: ...
-
     def get_irtype(self, semtype: sem.TypeInfo) -> ir.Type:
-        if isinstance(semtype, (sem.IntTypeInfo, sem.BoolTypeInfo)):
-            return ir.IntType()  # Booleans are represented as integers (0/1)
-        if isinstance(semtype, sem.FloatTypeInfo):
-            return ir.FloatType()
-        if isinstance(semtype, sem.VoidTypeInfo):
-            return ir.VoidType()
-        raise ValueError(f"Unsupported semantic type: {semtype}")
+        return self.builder.get_irtype(semtype)
 
     def get_irfunc(self, name: str, signature: sem.FunctionTypeInfo) -> ir.Function:
         return_type = self.get_irtype(signature.return_type)
@@ -106,17 +93,17 @@ class IRGenerator(ast.ASTNodeVisitor):
     def add_local_var(self, var: ir.NamedValue):
         cur_scope = self.symtab.cur_scope
         assert cur_scope is not self.symtab.global_scope
-        if cur_scope not in self._added_locals:
-            self._added_locals[cur_scope] = []
-        self._added_locals[cur_scope].append(var)
+        if cur_scope not in self._extended_locals:
+            self._extended_locals[cur_scope] = []
+        self._extended_locals[cur_scope].append(var)
 
     def get_locals(self) -> list[ir.NamedValue]:
         local_symbols = self.symtab.get_locals()
         result = [self._symbol_map[symbol] for symbol in local_symbols]
         scope = self.symtab.cur_scope
         while scope and scope is not self.symtab.global_scope:
-            if scope in self._added_locals:
-                result.extend(self._added_locals[scope])
+            if scope in self._extended_locals:
+                result.extend(self._extended_locals[scope])
             scope = scope.enclosing
         return result
 
@@ -165,6 +152,8 @@ class IRGenerator(ast.ASTNodeVisitor):
     def visit_FunctionDeclaration(self, node: ast.FunctionDeclaration):
         func = self._func_map[node.name]
         self.cur_func = func
+        self._block_id = 0
+        self.builder.reset_value_counter()
         self.builder.set_block(func.entry_block)
 
         with self.with_scope(node.scope):
@@ -192,6 +181,8 @@ class IRGenerator(ast.ASTNodeVisitor):
     def _emit_assign[T: ir.Type](self, value: ir.Value[T], target: ir.NamedValue[T]):
         if ir.int_typed(value) and ir.int_typed(target):
             self.emit(ir.IntAssign(value, target))
+        elif ir.fixed_typed(value) and ir.fixed_typed(target):
+            self.emit(ir.FixedAssign(value, target))
         elif ir.float_typed(value) and ir.float_typed(target):
             self.emit(ir.FloatAssign(value, target))
         else:
@@ -217,15 +208,15 @@ class IRGenerator(ast.ASTNodeVisitor):
         value = self.visit(node.value)
         self._emit_assign(value, target)
 
-    def _get_int_float_binop(self, op: ast.ArithmeticOp) -> tuple[
-        type[ir.IntBinaryInstr], type[ir.FloatBinaryInstr]
+    def _get_binop_for_all_type(self, op: ast.ArithmeticOp) -> tuple[
+        type[ir.IntBinaryInstr], type[ir.FloatBinaryInstr], type[ir.FixedBinaryInstr]
     ]:
         return {
-            ast.AddOp: (ir.IAdd, ir.FAdd),
-            ast.SubOp: (ir.ISub, ir.FSub),
-            ast.MulOp: (ir.IMul, ir.FMul),
-            ast.DivOp: (ir.IDiv, ir.FDiv),
-            ast.ModOp: (ir.IMod, ir.FMod),
+            ast.AddOp: (ir.IAdd, ir.FAdd, ir.XAdd),
+            ast.SubOp: (ir.ISub, ir.FSub, ir.XSub),
+            ast.MulOp: (ir.IMul, ir.FMul, ir.XMul),
+            ast.DivOp: (ir.IDiv, ir.FDiv, ir.XDiv),
+            ast.ModOp: (ir.IMod, ir.FMod, ir.XMod),
         }[type(op)]
     
     def _get_cmp_op(self, op: ast.CompareOp) -> utils.CompareOp:
@@ -248,11 +239,31 @@ class IRGenerator(ast.ASTNodeVisitor):
             assert False
         return temp
 
+    def _get_float_from_fixed(self, value: ir.Value[ir.FixedType]) -> ir.Value[ir.FloatType]:
+        if isinstance(value, ir.NamedValue):
+            temp = self.builder.new_temp(ir.FloatType())
+            self.emit(ir.FixedToFloat(value, temp))
+        elif isinstance(value, ir.Constant):
+            temp = ir.Constant(float(value.value()), ir.FloatType())
+        else:
+            assert False
+        return temp
+    
+    def _get_fixed_from_int(self, value: ir.Value[ir.IntType]) -> ir.Value[ir.FixedType]:
+        if isinstance(value, ir.NamedValue):
+            temp = self.builder.new_temp(ir.FixedType())
+            self.emit(ir.IntToFixed(value, temp))
+        elif isinstance(value, ir.Constant):
+            temp = ir.Constant(float(value.value()), ir.FixedType())
+        else:
+            assert False
+        return temp
+
     def visit_AugAssignStatement(self, node: ast.AugAssignStatement):
         target = self.visit(node.target)
         value = self.visit(node.value)
 
-        i_op, f_op = self._get_int_float_binop(node.op)
+        i_op, f_op, x_op = self._get_binop_for_all_type(node.op)
 
         if ir.int_typed(target) and ir.int_typed(value):
             # Both integers
@@ -260,6 +271,9 @@ class IRGenerator(ast.ASTNodeVisitor):
         elif ir.float_typed(target) and ir.float_typed(value):
             # Both floats
             self.emit(f_op(target, value, target))
+        elif ir.fixed_typed(target) and ir.fixed_typed(value):
+            # Both fixed-point
+            self.emit(x_op(target, value, target))
         elif ir.float_typed(target) and ir.int_typed(value):
             # Float target, integer value - convert integer to float
             temp = self._get_float_from_int(value)
@@ -435,19 +449,24 @@ class IRGenerator(ast.ASTNodeVisitor):
 
             if isinstance(node.op, ast.ArithmeticOp):
                 # Arithmetic operations (+, -, *, /, %)
-                i_op, f_op = self._get_int_float_binop(node.op)
+                i_op, f_op, x_op = self._get_binop_for_all_type(node.op)
 
                 if ir.int_typed(lhs) and ir.int_typed(rhs):
                     # Integer arithmetic
                     assert ir.int_typed(target)
                     self.emit(i_op(lhs, rhs, target))
 
+                if ir.fixed_typed(lhs) and ir.fixed_typed(rhs):
+                    # Fixed-point arithmetic
+                    assert ir.fixed_typed(target)
+                    self.emit(x_op(lhs, rhs, target))
+
                 elif ir.float_typed(lhs) and ir.float_typed(rhs):
                     # Float arithmetic
                     target = cast(ir.NamedValue[ir.FloatType], target)
                     self.emit(f_op(lhs, rhs, target))
 
-                # Mixed types - convert integer(s) to float
+                # Mixed types - convert int & fixed to float
                 elif ir.int_typed(lhs) and ir.float_typed(rhs):
                     lhs = self._get_float_from_int(lhs)
                     assert ir.float_typed(target)
@@ -458,12 +477,33 @@ class IRGenerator(ast.ASTNodeVisitor):
                     assert ir.float_typed(target)
                     self.emit(f_op(lhs, rhs, target))
                 
+                elif ir.fixed_typed(lhs) and ir.float_typed(rhs):
+                    lhs = self._get_float_from_fixed(lhs)
+                    assert ir.float_typed(target)
+                    self.emit(f_op(lhs, rhs, target))
+
+                elif ir.float_typed(lhs) and ir.fixed_typed(rhs):
+                    rhs = self._get_float_from_fixed(rhs)
+                    assert ir.float_typed(target)
+                    self.emit(f_op(lhs, rhs, target))
+                
+                elif ir.int_typed(lhs) and ir.fixed_typed(rhs):
+                    lhs = self._get_fixed_from_int(lhs)
+                    assert ir.fixed_typed(target)
+                    self.emit(x_op(lhs, rhs, target))
+                
+                elif ir.fixed_typed(lhs) and ir.int_typed(rhs):
+                    rhs = self._get_fixed_from_int(rhs)
+                    assert ir.fixed_typed(target)
+                    self.emit(x_op(lhs, rhs, target))
+
                 else:
                     assert False
 
             elif isinstance(node.op, ast.CompareOp):
                 # Comparison operations (==, !=, <, >, <=, >=)
                 op = self._get_cmp_op(node.op)
+                target = cast(ir.NamedValue[ir.IntType], target)  # Comparisons yield integer (0/1)
 
                 if ir.int_typed(lhs) and ir.int_typed(rhs):
                     # Integer comparison
@@ -480,6 +520,25 @@ class IRGenerator(ast.ASTNodeVisitor):
                 elif ir.float_typed(lhs) and ir.int_typed(rhs):
                     rhs = self._get_float_from_int(rhs)
                     self.emit(ir.FCmp(lhs, rhs, target, op))
+                
+                elif ir.fixed_typed(lhs) and ir.fixed_typed(rhs):
+                    self.emit(ir.XCmp(lhs, rhs, target, op))
+
+                elif ir.fixed_typed(lhs) and ir.float_typed(rhs):
+                    lhs = self._get_float_from_fixed(lhs)
+                    self.emit(ir.FCmp(lhs, rhs, target, op))
+                
+                elif ir.float_typed(lhs) and ir.fixed_typed(rhs):
+                    rhs = self._get_float_from_fixed(rhs)
+                    self.emit(ir.FCmp(lhs, rhs, target, op))
+                
+                elif ir.int_typed(lhs) and ir.fixed_typed(rhs):
+                    lhs = self._get_fixed_from_int(lhs)
+                    self.emit(ir.XCmp(lhs, rhs, target, op))
+                
+                elif ir.fixed_typed(lhs) and ir.int_typed(rhs):
+                    rhs = self._get_fixed_from_int(rhs)
+                    self.emit(ir.XCmp(lhs, rhs, target, op))
                 
                 else:
                     assert False
@@ -515,10 +574,17 @@ class IRGenerator(ast.ASTNodeVisitor):
                     # Negate integer: 0 - operand
                     zero = ir.Constant(0, ir.IntType())
                     self.emit(ir.ISub(zero, operand, target))
+
+                elif ir.fixed_typed(operand) and ir.fixed_typed(target):
+                    # Negate fixed-point: 0.0 - operand
+                    zero = ir.Constant(0.0, ir.FixedType())
+                    self.emit(ir.XSub(zero, operand, target))
+                
                 elif ir.float_typed(operand) and ir.float_typed(target):
                     # Negate float: 0.0 - operand
                     zero = ir.Constant(0.0, ir.FloatType())
                     self.emit(ir.FSub(zero, operand, target))
+                
                 else:
                     assert False
 
@@ -571,6 +637,8 @@ class IRGenerator(ast.ASTNodeVisitor):
             value = node.value
             if isinstance(node.type, ast.IntType):
                 return ir.Constant(value, ir.IntType())
+            elif isinstance(node.type, ast.FixedType):
+                return ir.Constant(value, ir.FixedType())
             elif isinstance(node.type, ast.FloatType):
                 return ir.Constant(value, ir.FloatType())
             elif isinstance(node.type, ast.BoolType):

@@ -1,0 +1,5 @@
+main():
+    a: Fixed = 2.5x
+    b: Fixed = 5.3x
+    c: Bool = a < -b
+    d: Fixed = b * 1.2x

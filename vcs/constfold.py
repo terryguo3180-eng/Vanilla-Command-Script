@@ -117,17 +117,22 @@ class ConstantFolder(ast.ASTNodeTransformer):
         rtype, rvalue = rhs.type, rhs.value
 
         lhs_int = isinstance(ltype, ast.IntType)
+        lhs_fixed = isinstance(ltype, ast.FixedType)
         lhs_float = isinstance(ltype, ast.FloatType)
         lhs_bool = isinstance(ltype, ast.BoolType)
         rhs_int = isinstance(rtype, ast.IntType)
+        rhs_fixed = isinstance(rtype, ast.FixedType)
         rhs_float = isinstance(rtype, ast.FloatType)
         rhs_bool = isinstance(rtype, ast.BoolType)
 
         int_int = lhs_int and rhs_int
         float_float = lhs_float and rhs_float
+        fixed_fixed = lhs_fixed and rhs_fixed
         int_float = (lhs_int and rhs_float) or (lhs_float and rhs_int)
+        int_fixed = (lhs_int and rhs_fixed) or (lhs_fixed and rhs_int)
+        float_fixed = (lhs_float and rhs_fixed) or (lhs_fixed and rhs_float)
         bool_bool = lhs_bool and rhs_bool
-        comparable = int_int or float_float or int_float or bool_bool
+        comparable = int_int or float_float or int_float or fixed_fixed or int_fixed or float_fixed
 
         try:
             match node.op:
@@ -139,18 +144,36 @@ class ConstantFolder(ast.ASTNodeTransformer):
                     new = ast.Constant(value=lvalue * rvalue, type=ast.IntType())
                 case ast.DivOp() if int_int:
                     new = ast.Constant(value=lvalue // rvalue, type=ast.IntType())
-                case ast.AddOp() if int_float:
+                case ast.ModOp() if int_int:
+                    new = ast.Constant(value=lvalue % rvalue, type=ast.IntType())
+
+                case ast.AddOp() if int_float or float_float or float_fixed:
                     new = ast.Constant(value=lvalue + rvalue, type=ast.FloatType())
-                case ast.SubOp() if int_float:
+                case ast.SubOp() if int_float or float_float or float_fixed:
                     new = ast.Constant(value=lvalue - rvalue, type=ast.FloatType())
-                case ast.MulOp() if int_float:
+                case ast.MulOp() if int_float or float_float or float_fixed:
                     new = ast.Constant(value=lvalue * rvalue, type=ast.FloatType())
-                case ast.DivOp() if int_float:
+                case ast.DivOp() if int_float or float_float or float_fixed:
                     new = ast.Constant(value=lvalue / rvalue, type=ast.FloatType())
+                case ast.ModOp() if int_float or float_float or float_fixed:
+                    new = ast.Constant(value=lvalue % rvalue, type=ast.FloatType())
+
+                case ast.AddOp() if int_fixed or fixed_fixed:
+                    new = ast.Constant(value=lvalue + rvalue, type=ast.FixedType())
+                case ast.SubOp() if int_fixed or fixed_fixed:
+                    new = ast.Constant(value=lvalue - rvalue, type=ast.FixedType())
+                case ast.MulOp() if int_fixed or fixed_fixed:
+                    new = ast.Constant(value=lvalue * rvalue, type=ast.FixedType())
+                case ast.DivOp() if int_fixed or fixed_fixed:
+                    new = ast.Constant(value=lvalue / rvalue, type=ast.FixedType())
+                case ast.ModOp() if int_fixed or fixed_fixed:
+                    new = ast.Constant(value=lvalue % rvalue, type=ast.FixedType())
+
                 case ast.AndOp() if int_int or bool_bool:
                     new = ast.Constant(value=bool(lvalue and rvalue), type=ast.BoolType())
                 case ast.OrOp() if int_int or bool_bool:
                     new = ast.Constant(value=bool(lvalue or rvalue), type=ast.BoolType())
+
                 case ast.EqOp() if comparable:
                     new = ast.Constant(value=lvalue == rvalue, type=ast.BoolType())
                 case ast.NeOp() if comparable:

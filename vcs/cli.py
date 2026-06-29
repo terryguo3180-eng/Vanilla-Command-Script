@@ -2,6 +2,7 @@ import argparse
 import cmd
 import time
 import sys
+
 from pathlib import Path
 from types import ModuleType
 from typing import Callable
@@ -96,6 +97,14 @@ class CommandLineInterface:
             help="Path for the output datapack (in .zip format)"
         )
         argparser.add_argument(
+            "-x",
+            "--fixed-precision",
+            metavar="PRECISION",
+            type=int,
+            default=1000,
+            help="Precision for fixed-point numbers (default: 1000)"
+        )
+        argparser.add_argument(
             "--skip-comments",
             action="store_true",
             help="Skip all the comment tokens",
@@ -159,6 +168,7 @@ class CommandLineInterface:
         description: str | None = args.description
 
         self.output: str = args.output
+        self.fixed_precision: int = args.fixed_precision
 
         self.skip_comments: bool = args.skip_comments
         self.tabsize: bool = args.tabsize
@@ -239,7 +249,7 @@ class CommandLineInterface:
         constfolder = cf.ConstantFolder(parser)
         typechecker = sem.SemanticAnalyzer(constfolder, self.errors)
         irgen = irg.IRGenerator(self.namespace, typechecker)
-        cmdgen = cgn.CommandGenerator(irgen)
+        cmdgen = cgn.CommandGenerator(irgen, self.fixed_precision)
         return (lexer, parser, constfolder, typechecker, irgen, cmdgen)
 
     def print_errors_if_any(self):
@@ -257,13 +267,14 @@ class CommandLineInterface:
         if self.dump_tokens:
             for token in tokens:
                 utils.print_info(str(token))
+            utils.print_info("")
 
         if self.lex_stats:
             dt = t1 - t0
             nlines = tokens[-1].end_lineno
             line_psec = f"; {nlines / dt:.0f} lines/sec"
             utils.print_info(
-                f"Lexer Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Tokens: {len(tokens)}"
+                f"Lexer Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Tokens: {len(tokens)}\n"
             )
 
         self.print_errors_if_any()
@@ -275,58 +286,62 @@ class CommandLineInterface:
         t1 = time.time()
 
         if self.dump_ast:
-            utils.print_info(str(tree))
+            utils.print_info(str(tree) + "\n")
         
         if self.parse_stats:
             dt = t1 - t0
             nlines = parser.diagnose().end_lineno
             line_psec = f", {nlines / dt:.0f} lines/sec"
             utils.print_info(
-                f"Parser Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Cache size: {len(parser._cache)}"
+                f"Parser Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Cache size: {len(parser._cache)}\n"
             )
         
         self.print_errors_if_any()
 
     def constfold_cli(self, filename: str, source: str):
+        self.dump_tree = False
         _, _, constfolder, *_ = self.build_pipeline(filename, source)
         folded = constfolder.fold()
         if self.dump_cf:
-            utils.print_info(str(folded))
+            utils.print_info(str(folded) + "\n")
         self.print_errors_if_any()
 
     def semantic_cli(self, filename: str, source: str):
+        self.dump_tree = False
         _, _, _, typechecker, *_ = self.build_pipeline(filename, source)
         typechecker.analyze()
         self.print_errors_if_any()
     
     def irgen_cli(self, filename: str, source: str):
+        self.dump_tree = False
         _, _, _, _, irgen, *_ = self.build_pipeline(filename, source)
         mod = irgen.generate()
         if mod is not None and (self.dump_ir or self.dump_cg):
             if self.dump_ir:
-                utils.print_info(str(mod))
+                utils.print_info(str(mod) + "\n")
                 
             if self.dump_cg:
                 call_graph = mod.build_call_graph()
                 for src, dsts in call_graph.func_calls.items():
                     utils.print_info(f"{src.name} -> {', '.join(dst.name for dst in dsts)}")
+                utils.print_info("")
 
         self.print_errors_if_any()
     
     def cmdgen_cli(self, filename: str, source: str):
+        self.dump_tree = False
         _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
         datapack = cmdgen.generate()
         if datapack is not None and self.dump_cmds:
-            utils.print_info(str(datapack))
+            utils.print_info(str(datapack) + "\n")
         self.print_errors_if_any()
     
     def main_cli(self, filename: str, source: str):
+        self.dump_tree = False
         _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
         datapack = cmdgen.generate()
         if datapack is not None:
             datapack.write_zip(self.output, self.description)
-
-        self.print_errors_if_any()
 
 
 def cli():

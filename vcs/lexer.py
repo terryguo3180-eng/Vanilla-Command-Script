@@ -38,7 +38,8 @@ class LexerConfig:
     re_Exponent = r"[eE][-+]?[0-9](?:_?[0-9])*"
     re_Pointfloat = _group(r"[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?", r"\.[0-9](?:_?[0-9])*") + _maybe(re_Exponent)
     re_Expfloat = r"[0-9](?:_?[0-9])*" + re_Exponent
-    re_Floatnumber = _group(re_Pointfloat, re_Expfloat)
+    re_Floatnumber = _group(re_Pointfloat, re_Expfloat) + r"[fF]"
+    re_Fixednumber = _group(re_Pointfloat, re_Expfloat) + r"[xX]"
     re_Special = _group(*(re.escape(op) for op in sorted(operators, key=len, reverse=True)))
     re_Quote = r"\\?" + _group('"""', "'''", '"', "'")
     re_Newline = r" *\r?\n"
@@ -87,6 +88,7 @@ class TokenType(Enum):
     NAME = auto()
     INT = auto()
     FLOAT = auto()
+    FIXED = auto()
     OP = auto()
     NEWLINE = auto()
     INDENT = auto()
@@ -387,7 +389,12 @@ class Lexer:
             # Float literal
             string = match.group(0)
             yield self._maketoken(TokenType.FLOAT, string)
-            
+
+        elif match := self._match(LexerConfig.re_Fixednumber):
+            # Fixed-point literal
+            string = match.group(0)
+            yield self._maketoken(TokenType.FIXED, string)
+
         elif match := self._match(LexerConfig.re_Intnumber):
             # Integer literal
             string = match.group(0)

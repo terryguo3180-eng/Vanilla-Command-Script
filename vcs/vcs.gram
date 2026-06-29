@@ -171,7 +171,8 @@ atom_expr[ast.Expression]:
     | a='false' { ast.Constant(value=False, type=ast.BoolType(), LOCATIONS) }
     | a=NAME { ast.Identifier(name=a.value, context=ast.Load(), LOCATIONS) }
     | a=INT { ast.Constant(value=int(a.value), type=ast.IntType(), LOCATIONS) }
-    | a=FLOAT { ast.Constant(value=float(a.value), type=ast.FloatType(), LOCATIONS) }
+    | a=FLOAT { ast.Constant(value=float(a.value[:-1]), type=ast.FloatType(), LOCATIONS) }
+    | a=FIXED { ast.Constant(value=float(a.value[:-1]), type=ast.FixedType(), LOCATIONS) }
     | a=STRING { ast.Constant(value=a.value, type=ast.StringType(), LOCATIONS) }
     | '(' a=expression ')' { a }
 
@@ -191,4 +192,5 @@ kw_arg[ast.KeywordArgument]:
 type[ast.Type]:
     | a='Int' { ast.IntType(LOCATIONS) }
     | a='Bool' { ast.BoolType(LOCATIONS) }
+    | a='Fixed' { ast.FixedType(LOCATIONS) }
     | a='Float' { ast.FloatType(LOCATIONS) }

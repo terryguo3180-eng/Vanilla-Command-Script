@@ -7,10 +7,11 @@ from vcs import utils
 
 
 class CommandGenerator(ir.IRProcessor):
-    def __init__(self, irgen: irg.IRGenerator):
+    def __init__(self, irgen: irg.IRGenerator, fixed_precision: int = 1000):
         self.namespace = irgen.namespace
         self.irgen = irgen
         self.builder = cmd.DatapackBuilder(self.namespace)
+        self.fixed_precision = fixed_precision
 
         self.call_graph: ir.CallGraph
         self.cur_func: ir.Function
@@ -21,11 +22,11 @@ class CommandGenerator(ir.IRProcessor):
     @overload
     def process(self, inst: ir.Instruction) -> None: ...
     @overload
-    def process(self, inst: ir.NamedValue[ir.IntType]) -> cmd.ScoreVar: ...
+    def process(self, inst: ir.NamedValue[ir.IntType] | ir.NamedValue[ir.FixedType]) -> cmd.ScoreVar: ...
     @overload
-    def process(self, inst: ir.Constant[ir.IntType]) -> cmd.ImmValue: ...
+    def process(self, inst: ir.Constant[ir.IntType] | ir.Constant[ir.FixedType]) -> cmd.ImmValue: ...
     @overload
-    def process(self, inst: ir.Value[ir.IntType]) -> cmd.ScoreVar | cmd.ImmValue: ...
+    def process(self, inst: ir.Value[ir.IntType] | ir.Value[ir.FixedType]) -> cmd.ScoreVar | cmd.ImmValue: ...
     @overload
     def process(self, inst: ir.Value) -> cmd.CommandValue: ...
 
@@ -102,6 +103,28 @@ class CommandGenerator(ir.IRProcessor):
         }[type(inst)]
         self.emit_binary_score_op(command_type, target_var, rhs_var)
     
+    def _process_fixed_binary_instr(self, inst: ir.FixedBinaryInstr):
+        lhs_var = self.process(inst.lhs)
+        rhs_var = self.process(inst.rhs)
+        target_var = self.process(inst.target)
+        self.emit(cmd.ScoreSet(target_var, lhs_var))
+        command_type: type[cmd.ScoreOperation] = {
+            ir.XAdd: cmd.ScoreAdd,
+            ir.XSub: cmd.ScoreSub,
+            ir.XMul: cmd.ScoreMul,
+            ir.XDiv: cmd.ScoreDiv,
+            ir.XMod: cmd.ScoreMod,
+        }[type(inst)]
+
+        # For multiplication/division, we need to adjust for fixed-point precision
+        if isinstance(inst, ir.XDiv):
+            self.emit_binary_score_op(cmd.ScoreMul, target_var, cmd.ImmValue(self.fixed_precision))
+
+        self.emit_binary_score_op(command_type, target_var, rhs_var)
+
+        if isinstance(inst, ir.XMul):
+            self.emit_binary_score_op(cmd.ScoreDiv, target_var, cmd.ImmValue(self.fixed_precision))
+
     def process_IAdd(self, inst: ir.IAdd):
         self._process_int_binary_instr(inst)
 
@@ -116,6 +139,21 @@ class CommandGenerator(ir.IRProcessor):
 
     def process_IMod(self, inst: ir.IMod):
         self._process_int_binary_instr(inst)
+
+    def process_XAdd(self, inst: ir.XAdd):
+        self._process_fixed_binary_instr(inst)
+    
+    def process_XSub(self, inst: ir.XSub):
+        self._process_fixed_binary_instr(inst)
+    
+    def process_XMul(self, inst: ir.XMul):
+        self._process_fixed_binary_instr(inst)
+    
+    def process_XDiv(self, inst: ir.XDiv):
+        self._process_fixed_binary_instr(inst)
+    
+    def process_XMod(self, inst: ir.XMod):
+        self._process_fixed_binary_instr(inst)
 
     def process_Not(self, inst: ir.Not):
         value_var = self.process(inst.value)
@@ -189,7 +227,7 @@ class CommandGenerator(ir.IRProcessor):
         else:
             assert False
 
-    def process_ICmp(self, inst: ir.ICmp):
+    def _process_int_comparison(self, inst: ir.ICmp | ir.XCmp):
         lhs_var = self.process(inst.lhs)
         rhs_var = self.process(inst.rhs)
         target_var = self.process(inst.target)
@@ -214,12 +252,23 @@ class CommandGenerator(ir.IRProcessor):
             cmd.StoreScore(target_var, cmd.Result()),
             cmd.IfScore(lhs_var, rhs_var, op),
         ], None))
+
+    def process_ICmp(self, inst: ir.ICmp):
+        self._process_int_comparison(inst)
+    
+    def process_XCmp(self, inst: ir.XCmp):
+        self._process_int_comparison(inst)
     
     def process_IntAssign(self, inst: ir.IntAssign):
         target_var = self.process(inst.target)
         value_var = self.process(inst.value)
         self.emit(cmd.ScoreSet(target_var, value_var))
     
+    def process_FixedAssign(self, inst: ir.FixedAssign):
+        target_var = self.process(inst.target)
+        value_var = self.process(inst.value)
+        self.emit(cmd.ScoreSet(target_var, value_var))
+
     def process_Call(self, inst: ir.Call):
         callee = self.get_func(self._get_block_mcfname(inst.func.entry_block))
         assert callee is not None
@@ -322,11 +371,15 @@ class CommandGenerator(ir.IRProcessor):
         objective = self.cur_func.name
         if ir.int_typed(value):
             return cmd.ScoreVar(value.name, objective)
+        if ir.fixed_typed(value):
+            return cmd.ScoreVar(value.name, objective)
         assert False
     
     def process_Constant(self, value: ir.Constant):
         if ir.int_typed(value):
-            return cmd.ImmValue(value.value())
+            return cmd.ImmValue(value.int_value())
+        if ir.fixed_typed(value):
+            return cmd.ImmValue(value.fixed_value(self.fixed_precision))
         assert False
 
 
