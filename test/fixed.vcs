@@ -1,5 +1,7 @@
 main():
-    a: Fixed = 2.5x
-    b: Fixed = 5.3x
+    a: Float = 2.5f
+    b: Int = 5
     c: Bool = a < -b
-    d: Fixed = b * 1.2x
+    d: Float = b * 1.2f
+
+    # comment

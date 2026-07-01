@@ -385,7 +385,7 @@ class Datapack:
     def __init__(self, namespace: str):
         self.namespace = namespace
         self.consts: set[int] = set()
-        self.const_obj = f"{namespace}.const"
+        self.const_obj = f"{namespace}.0"
         self.mcfunctions: dict[str, MCFunction] = {}
     
     def add_func(self, name: str, mcf: MCFunction | None = None):
@@ -442,9 +442,6 @@ class DatapackBuilder:
         self.namespace = namespace
         self.datapack = Datapack(namespace)
         self.cur_func: MCFunction | None = None
-
-        self.consts: set[int] = set()
-        self.const_obj = f"{namespace}.const"
 
     def add_func(self, name: str, mcf: MCFunction | None = None):
         return self.datapack.add_func(name, mcf)

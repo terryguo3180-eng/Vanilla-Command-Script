@@ -3,14 +3,13 @@ from __future__ import annotations
 import os
 import re
 import sys
-from typing import TYPE_CHECKING, TypeGuard, overload
+from typing import TYPE_CHECKING
 
 from vcs import errors as err
 from vcs import lexer as lex
 
 if TYPE_CHECKING:
     from vcs import ast
-    from vcs import ir
 
 
 class SingletonMeta(type):

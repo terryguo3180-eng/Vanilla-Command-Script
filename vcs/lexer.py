@@ -6,6 +6,7 @@ from enum import Enum, auto
 from typing import Generator
 
 from vcs import errors as err
+from vcs import utils
 
 
 # Small helpers to build regex components
@@ -126,13 +127,23 @@ class Lexer:
         raw: bool  # Whether this is a raw string (\"...")
 
 
-    def __init__(self, source: str, filename: str, errors: err.ErrorCollector, tabsize=4):
+    def __init__(
+        self,
+        source: str,
+        filename: str,
+        errors: err.ErrorCollector,
+        skip_comments=False,
+        tabsize=4,
+        dump_tokens=False,
+    ):
         # Normalize the input text: ensure single trailing newline, expand tabs, remove formfeeds
         source = (source.rstrip("\n") + "\n").expandtabs(tabsize).replace("\f", " ")
 
         # Store source lines for accurate position tracking across multiple lines
         self.source_lines = source.split("\n")
         self.filename = filename
+        self.skip_comments = skip_comments
+        self.dump_tokens = dump_tokens
         self.linecount = source.count("\n") + 1
 
         self.source = source  # Raw source text
@@ -274,40 +285,47 @@ class Lexer:
         return lineno, column
 
     def __iter__(self) -> Generator[TokenInfo, None, None]:
-        # Start with placeholder tokens
-        t1 = t2 = t3 = TokenInfo(TokenType.ERRORTOKEN, "", "", 0, 0, 0)
+        def _iter():
+            # Start with placeholder tokens
+            t1 = t2 = t3 = TokenInfo(TokenType.ERRORTOKEN, "", "", 0, 0, 0)
 
-        # Iterate through raw tokens and coalesce string parts
-        for token in self._tokenize():
-            t1, t2, t3 = t2, t3, token
+            # Iterate through raw tokens and coalesce string parts
+            for token in self._tokenize():
+                t1, t2, t3 = t2, t3, token
 
-            if (
-                t1.type == TokenType.STRING_START
-                and t2.type == TokenType.STRING_MIDDLE
-                and t3.type == TokenType.STRING_END
-            ):
-                # Complete string: START + MIDDLE + END -> SINGLE STRING
-                yield TokenInfo(
-                    TokenType.STRING,
-                    t1.value + t2.value + t3.value,
-                    t1.filename, t1.lineno, t1.column, t1.lexpos
-                )
-            elif (
-                t1.type == TokenType.STRING_START
-                and t2.type == TokenType.STRING_MIDDLE
-                and t3.type != TokenType.STRING_END
-            ):
-                # Partial string: START + MIDDLE but no END yet
-                yield from [t1, t2, t3]
-            elif t2.type == TokenType.STRING_START and t3.type == TokenType.STRING_MIDDLE:
-                # Skip duplicate emission when sequence overlaps
-                continue
-            elif t2.type == TokenType.STRING_START and t3.type != TokenType.STRING_MIDDLE:
-                # Only START token ready
-                yield from [t2, t3]
-            elif t3.type != TokenType.STRING_START:
-                # Regular token, yield as-is
-                yield t3
+                if (
+                    t1.type == TokenType.STRING_START
+                    and t2.type == TokenType.STRING_MIDDLE
+                    and t3.type == TokenType.STRING_END
+                ):
+                    # Complete string: START + MIDDLE + END -> SINGLE STRING
+                    yield TokenInfo(
+                        TokenType.STRING,
+                        t1.value + t2.value + t3.value,
+                        t1.filename, t1.lineno, t1.column, t1.lexpos
+                    )
+                elif (
+                    t1.type == TokenType.STRING_START
+                    and t2.type == TokenType.STRING_MIDDLE
+                    and t3.type != TokenType.STRING_END
+                ):
+                    # Partial string: START + MIDDLE but no END yet
+                    yield from [t1, t2, t3]
+                elif t2.type == TokenType.STRING_START and t3.type == TokenType.STRING_MIDDLE:
+                    # Skip duplicate emission when sequence overlaps
+                    continue
+                elif t2.type == TokenType.STRING_START and t3.type != TokenType.STRING_MIDDLE:
+                    # Only START token ready
+                    yield from [t2, t3]
+                elif t3.type != TokenType.STRING_START:
+                    # Regular token, yield as-is
+                    yield t3
+
+        # Dump all the tokens if verbose
+        for token in _iter():
+            yield token
+            if self.dump_tokens:
+                utils.print_info("-> " + str(token))
 
     def _current_state(self):
         # Get the current state of the lexer from the top of the state stack
@@ -402,6 +420,11 @@ class Lexer:
 
         elif match := self._match(LexerConfig.re_Comment):
             # Comment
+            if self.skip_comments:
+                # Every comment ends with a newline
+                self._last_token_was_newline = True
+                return
+
             if not self._last_token_was_newline:
                 # Emit a special COMMENT_SEP token to separate the comment and rest of the code
                 yield self._maketoken(TokenType.COMMENT_SEP, "", spos)

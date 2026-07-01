@@ -7,39 +7,34 @@ from vcs import utils
 
 
 class CommandGenerator(ir.IRProcessor):
-    def __init__(self, irgen: irg.IRGenerator, fixed_precision: int = 1000):
+    def __init__(
+        self,
+        irgen: irg.IRGenerator,
+        fixed_precision=1000,
+        dump_cmds=False
+    ):
         self.namespace = irgen.namespace
         self.irgen = irgen
         self.builder = cmd.DatapackBuilder(self.namespace)
         self.fixed_precision = fixed_precision
+        self.dump_cmds = dump_cmds
 
         self.call_graph: ir.CallGraph
         self.cur_func: ir.Function
         self.frame_path = cmd.StoragePath(self.namespace, "frames")
-
-    @overload
-    def process(self, inst: ir.Module) -> None: ...
-    @overload
-    def process(self, inst: ir.Instruction) -> None: ...
-    @overload
-    def process(self, inst: ir.NamedValue[ir.IntType] | ir.NamedValue[ir.FixedType]) -> cmd.ScoreVar: ...
-    @overload
-    def process(self, inst: ir.Constant[ir.IntType] | ir.Constant[ir.FixedType]) -> cmd.ImmValue: ...
-    @overload
-    def process(self, inst: ir.Value[ir.IntType] | ir.Value[ir.FixedType]) -> cmd.ScoreVar | cmd.ImmValue: ...
-    @overload
-    def process(self, inst: ir.Value) -> cmd.CommandValue: ...
-
-    def process(self, inst):
-        return super().process(inst)
 
     def generate(self) -> cmd.Datapack | None:
         module = self.irgen.generate()
         if module is None:
             return None
         self.process(module)
-        self.builder.datapack.build_setup()
-        return self.builder.datapack
+        datapack = self.builder.datapack
+        datapack.build_setup()
+        
+        if self.dump_cmds:
+            utils.print_info(str(datapack) + "\n")
+
+        return datapack
 
     def emit(self, command: cmd.Command):
         self.builder.emit(command)
@@ -191,7 +186,7 @@ class CommandGenerator(ir.IRProcessor):
                 cmd.IfScore(lhs_var, cmd.ImmValue(0), utils.NeOp()),
             ], None))
         else:
-            assert False
+            raise NotImplementedError("Unsupported combination of operands for And operation")
     
     def process_Or(self, inst: ir.Or):
         lhs_var = self.process(inst.lhs)
@@ -225,7 +220,7 @@ class CommandGenerator(ir.IRProcessor):
                 cmd.ScoreSet(target_var, cmd.ImmValue(1)),
             ))
         else:
-            assert False
+            raise NotImplementedError("Unsupported combination of operands for Or operation")
 
     def _process_int_comparison(self, inst: ir.ICmp | ir.XCmp):
         lhs_var = self.process(inst.lhs)
@@ -269,70 +264,87 @@ class CommandGenerator(ir.IRProcessor):
         value_var = self.process(inst.value)
         self.emit(cmd.ScoreSet(target_var, value_var))
 
+    def process_IntToFixed(self, inst: ir.IntToFixed):
+        target_var = self.process(inst.target)
+        value_var = self.process(inst.value)
+        self.emit(cmd.ScoreSet(target_var, value_var))
+        self.emit_binary_score_op(cmd.ScoreMul, target_var, cmd.ImmValue(self.fixed_precision))
+
+    def process_FixedToInt(self, inst: ir.FixedToInt):
+        target_var = self.process(inst.target)
+        value_var = self.process(inst.value)
+        self.emit(cmd.ScoreSet(target_var, value_var))
+        self.emit_binary_score_op(cmd.ScoreDiv, target_var, cmd.ImmValue(self.fixed_precision))
+
     def process_Call(self, inst: ir.Call):
         callee = self.get_func(self._get_block_mcfname(inst.func.entry_block))
         assert callee is not None
 
+        obj = self._get_objective(inst.func)
+
+        # Store arguments in the function's objective
         for name, value in inst.args.items():
-            if ir.int_typed(value):
-                var = cmd.ScoreVar(name, inst.func.name)
+            if ir.int_typed(value) or ir.fixed_typed(value):
+                var = cmd.ScoreVar(name, obj)
                 self.emit(cmd.ScoreSet(var, self.process(value)))
             else:
-                assert False
+                raise NotImplementedError(f"Unsupported argument type: {type(value)}")
 
-        if inst.target is None:
+        if inst.target is None:  # return value is ignored
             self.emit(cmd.Call(callee))
-        elif ir.int_typed(inst.target):
+        elif ir.int_typed(inst.target) or ir.fixed_typed(inst.target):
             var = self.process(inst.target)
             self.emit(cmd.Execute([cmd.StoreScore(var, cmd.Result())], cmd.Call(callee)))
         else:
-            assert False
+            raise NotImplementedError(f"Unsupported call target type: {type(inst.target)}")
     
     def process_Push(self, inst: ir.Push):
-        self.emit(cmd.StorageAppendValue(
-            self.frame_path, cmd.ImmNBT('{}')
-        ))
+        self.emit(cmd.StorageAppendValue(self.frame_path, cmd.ImmNBT('{}')))
         cur_frame = self.frame_path[-1]
+
+        # Store the values in the current frame's storage
         for i, value in enumerate(inst.values):
-            if ir.int_typed(value):
+            if ir.int_typed(value) or ir.fixed_typed(value):
                 var = self.process(value)
                 self.emit(cmd.Execute([
-                    cmd.StoreStorage(
-                        getattr(cur_frame, f"v{i}"), cmd.Result(), cmd.IntType(), 1
-                    )
+                    cmd.StoreStorage(getattr(cur_frame, f"v{i}"), cmd.Result(), cmd.IntType(), 1)
                 ], cmd.ScoreGet(var)))
             else:
-                assert False
+                raise NotImplementedError(f"Unsupported value type for Push: {type(value)}")
     
     def process_Pop(self, inst: ir.Pop):
         cur_frame = self.frame_path[-1]
+
+        # Retrieve the values from the current frame's storage and 
+        # store them in the target variables
         for i, value in enumerate(inst.values):
-            if ir.int_typed(value):
+            if ir.int_typed(value) or ir.fixed_typed(value):
                 var = self.process(value)
                 self.emit(cmd.Execute([
                     cmd.StoreScore(var, cmd.Result())
                 ], cmd.StorageGet(getattr(cur_frame, f"v{i}"))))
             else:
-                assert False
+                raise NotImplementedError(f"Unsupported value type for Pop: {type(value)}")
+            
         self.emit(cmd.StorageDel(cur_frame))
 
     def process_Return(self, inst: ir.Return):
-        if inst.value is None:
+        if inst.value is None:  # return without a value, default to returning 0
             self.emit(cmd.ReturnValue(cmd.ImmValue(0)))
-            return
-        if ir.int_typed(inst.value):
+
+        elif ir.int_typed(inst.value) or ir.fixed_typed(inst.value):
             var = self.process(inst.value)
             if isinstance(var, cmd.ImmValue):
                 self.emit(cmd.ReturnValue(var))
             else:
                 self.emit(cmd.ReturnRun(cmd.ScoreGet(var)))
-            return
-        assert False
+        else:
+            raise NotImplementedError(f"Unsupported return value type: {type(inst.value)}")
 
     def process_Goto(self, inst: ir.Goto):
         mcfname = self._get_block_mcfname(inst.label)
         mcf = self.get_func(mcfname)
-        assert mcf is not None
+        assert mcf is not None, f"Function {mcfname} not found for Goto instruction"
         # function <label>
         self.emit(cmd.ReturnRun(cmd.Call(mcf)))
     
@@ -344,8 +356,8 @@ class CommandGenerator(ir.IRProcessor):
         body_mcf = self.get_func(body_mcfname)
         else_mcf = self.get_func(else_mcfname)
 
-        assert body_mcf is not None
-        assert else_mcf is not None
+        assert body_mcf is not None, f"Function {body_mcfname} not found for Branch instruction"
+        assert else_mcf is not None, f"Function {else_mcfname} not found for Branch instruction"
 
         self.emit(cmd.Execute([
             # execute unless score <cond> matches 0 run return run function <true>
@@ -367,20 +379,42 @@ class CommandGenerator(ir.IRProcessor):
                 {"score": {"name": var.name, "objective": var.objective}}
             ))
 
+    def _get_objective(self, func: ir.Function | None = None):
+        if func is None:
+            func = self.cur_func
+        assert func is not None, "No current function context"
+        return f"{self.namespace}.{func.name}"
+
     def process_NamedValue(self, value: ir.NamedValue):
-        objective = self.cur_func.name
-        if ir.int_typed(value):
+        objective = self._get_objective()
+        if ir.int_typed(value) or ir.fixed_typed(value):
             return cmd.ScoreVar(value.name, objective)
-        if ir.fixed_typed(value):
-            return cmd.ScoreVar(value.name, objective)
-        assert False
+        
+        raise NotImplementedError(f"Unsupported NamedValue type: {type(value)}")
     
     def process_Constant(self, value: ir.Constant):
         if ir.int_typed(value):
             return cmd.ImmValue(value.int_value())
         if ir.fixed_typed(value):
             return cmd.ImmValue(value.fixed_value(self.fixed_precision))
-        assert False
+        
+        raise NotImplementedError(f"Unsupported Constant type: {type(value)}")
+
+    @overload
+    def process(self, inst: ir.Module) -> None: ...
+    @overload
+    def process(self, inst: ir.Instruction) -> None: ...
+    @overload
+    def process(self, inst: ir.NamedValue[ir.IntType] | ir.NamedValue[ir.FixedType]) -> cmd.ScoreVar: ...
+    @overload
+    def process(self, inst: ir.Constant[ir.IntType] | ir.Constant[ir.FixedType]) -> cmd.ImmValue: ...
+    @overload
+    def process(self, inst: ir.Value[ir.IntType] | ir.Value[ir.FixedType]) -> cmd.ScoreVar | cmd.ImmValue: ...
+    @overload
+    def process(self, inst: ir.Value) -> cmd.CommandValue: ...
+
+    def process(self, inst):
+        return super().process(inst)
 
 
 if __name__ == "__main__":

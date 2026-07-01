@@ -1,15 +1,20 @@
 from vcs import ast
 from vcs import lexer as lex
 from vcs import parser as psr
+from vcs import utils
 
 
 class ConstantFolder(ast.ASTNodeTransformer):
-    def __init__(self, parser: psr.Parser):
+    def __init__(self, parser: psr.Parser, dump_cf=False):
         self.parser = parser
+        self.dump_cf = dump_cf
     
     def fold(self):
         tree = self.parser.parse()
-        return self.visit(tree)
+        folded = self.visit(tree)
+        if self.dump_cf:
+            utils.print_info(utils.dump_astnode(folded))
+        return folded
     
     def get_error_info_on(self, node: ast.ASTNode | lex.TokenInfo):
         return self.parser.get_error_info_on(node)

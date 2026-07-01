@@ -111,6 +111,9 @@ class Constant[T: Type](Value[T]):
         super().__init__(type)
         self._value = value
 
+    def value(self) -> int | float:
+        return self._value
+
     def int_value(self: Constant[IntType]) -> int:
         assert isinstance(self._value, int)
         return self._value
@@ -140,6 +143,9 @@ class Comment(Instruction):
         if not self.value.startswith('#'):
             return '# ' + self.value.lstrip()
         return self.value
+
+
+type BinaryInstr = IntBinaryInstr | FloatBinaryInstr | FixedBinaryInstr
 
 
 @dataclass(frozen=True)
@@ -318,6 +324,9 @@ class Or(IntBinaryInstr):
         return f"{self.target} = or {self.lhs}, {self.rhs}"
 
 
+type CmpInstr = ICmp | XCmp | FCmp
+
+
 @dataclass(frozen=True)
 class ICmp(Instruction):
     lhs: Value[IntType]
@@ -494,13 +503,18 @@ class Function(NamedValue):
         Value.__init__(self, type)
         self.name = name
         self.blocks: list[BasicBlock] = []
+        self.block_names: set[str] = set()
         self.entry_block = BasicBlock("_", self)
         self.blocks.append(self.entry_block)
         self.param_names = param_names or [f"p{i}" for i in range(len(type.param_types))]
 
+    def has_block(self, name: str) -> bool:
+        return name in self.block_names
+
     def create_block(self, name: str) -> BasicBlock:
         block = BasicBlock(name, self)
         self.blocks.append(block)
+        self.block_names.add(name)
         return block
 
     def get_content(self):

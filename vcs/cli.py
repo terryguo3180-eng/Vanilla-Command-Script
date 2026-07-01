@@ -1,11 +1,10 @@
 import argparse
 import cmd
-import time
 import sys
 
 from pathlib import Path
 from types import ModuleType
-from typing import Callable
+from typing import Any, Callable
 
 from vcs import errors as err
 from vcs import cmdgen as cgn
@@ -15,6 +14,118 @@ from vcs import parser as psr
 from vcs import constfold as cf
 from vcs import semantic as sem
 from vcs import utils
+
+
+ARG_SPECS = [
+    {
+        "dest": "filename",
+        "nargs": "?",
+        "metavar": "filename.vcs",
+        "condition": lambda m: True
+    }, {
+        "dest": "namespace",
+        "args": ["-n", "--namespace"],
+        "metavar": "NAMESPACE",
+        "help": "Namespace for the program",
+        "condition": lambda m: True
+    }, {
+        "dest": "skip_comments",
+        "args": ["-k", "--skip-comments"],
+        "action": "store_true",
+        "help": "Ignore all the comments",
+        "condition": lambda m: True
+    }, {
+        "dest": "tabsize",
+        "args": ["-t", "--tabsize"],
+        "metavar": "TABSIZE",
+        "default": 4,
+        "help": "How many spaces per tab character",
+        "condition": lambda m: True
+    }, {
+        "dest": "lineno_digits",
+        "args": ["-l", "--lineno-digits"],
+        "metavar": "LINENO_DIGITS",
+        "help": "Max digits for line numbers in mcfunction names",
+        "condition": lambda m: True
+    }, {
+        "dest": "dump_tokens",
+        "args": ["--dump-tokens"],
+        "action": "store_true",
+        "help": "Print the generated tokens",
+        "condition": lambda m: True
+    }, {
+        "dest": "description",
+        "args": ["-d", "--description"],
+        "metavar": "DESCRIPTION",
+        "help": "Description for the program",
+        "condition": lambda m: m == "vcs.cli"
+    },
+    {
+        "dest": "output",
+        "args": ["-o", "--output"],
+        "required": True,
+        "help": "Path for the output datapack (in .zip format)",
+        "condition": lambda m: m == "vcs.cli"
+    }, {
+        "dest": "fixed_precision",
+        "args": ["-x", "--fixed-precision"],
+        "metavar": "PRECISION",
+        "type": int,
+        "default": 1000,
+        "help": "Precision for fixed-point numbers (default: 1000)",
+        "condition": lambda m: m not in {
+            "vcs.lexer", "vcs.parser", "vcs.constfold", "vcs.semantic", "vcs.irgen"
+        }
+    }, {
+        "dest": "dump_tree",
+        "args": ["--dump-tree"],
+        "action": "store_true",
+        "help": "Print the complete parse tree of the parser",
+        "condition": lambda m: m != "vcs.lexer"
+    }, {
+        "dest": "dump_ast",
+        "args": ["--dump-ast"],
+        "action": "store_true",
+        "help": "Print the generated AST (Abstract Syntax Tree)",
+        "condition": lambda m: m != "vcs.lexer"
+    }, {
+        "dest": "parse_stats",
+        "args": ["--parse-stats"],
+        "action": "store_true",
+        "help": "Print stats of the parser",
+        "condition": lambda m: m != "vcs.lexer"
+    }, {
+        "dest": "dump_cf",
+        "args": ["--dump-cf"],
+        "action": "store_true",
+        "help": "Print the generated constant-folded AST",
+        "condition": lambda m: m not in {"vcs.lexer", "vcs.parser"}
+    }, {
+        "dest": "dump_ir",
+        "args": ["--dump-ir"],
+        "action": "store_true",
+        "help": "Print the generated IR (Intermediate Representation)",
+        "condition": lambda m: m not in {
+            "vcs.lexer", "vcs.parser", "vcs.constfold", "vcs.semantic"
+        }
+    }, {
+        "dest": "dump_cg",
+        "args": ["--dump-cg"],
+        "action": "store_true",
+        "help": "Print the generated call graph",
+        "condition": lambda m: m not in {
+            "vcs.lexer", "vcs.parser", "vcs.constfold", "vcs.semantic"
+        }
+    }, {
+        "dest": "dump_cmds",
+        "args": ["--dump-cmds"],
+        "action": "store_true",
+        "help": "Print the generated datapack",
+        "condition": lambda m: m not in {
+            "vcs.lexer", "vcs.parser", "vcs.constfold", "vcs.semantic", "vcs.irgen"
+        }
+    },
+]
 
 
 main_module = sys.modules[__name__]
@@ -75,149 +186,30 @@ class CommandLineInterface:
             modname = module.__spec__.name
         else:
             modname = module.__name__
-                
+
         argparser = argparse.ArgumentParser(prog=f"python -m {modname}")
-        argparser.add_argument(dest="filename", nargs="?", metavar="filename.vcs")
-        argparser.add_argument(
-            "-n",
-            "--namespace",
-            metavar="NAMESPACE",
-            help="Namespace for the program"
-        )
-        argparser.add_argument(
-            "-d",
-            "--description",
-            metavar="DESCRIPTION",
-            help="Description for the program"
-        )
-        argparser.add_argument(
-            "-o",
-            "--output",
-            required=True,
-            help="Path for the output datapack (in .zip format)"
-        )
-        argparser.add_argument(
-            "-x",
-            "--fixed-precision",
-            metavar="PRECISION",
-            type=int,
-            default=1000,
-            help="Precision for fixed-point numbers (default: 1000)"
-        )
-        argparser.add_argument(
-            "--skip-comments",
-            action="store_true",
-            help="Skip all the comment tokens",
-        )
-        argparser.add_argument(
-            "--tabsize",
-            metavar="TABSIZE",
-            default=4,
-            help="How many spaces per tab character",
-        )
-        argparser.add_argument(
-            "--dump-tokens",
-            action="store_true",
-            help="Print the generated tokens"
-        )
-        argparser.add_argument(
-            "--lex-stats",
-            action="store_true",
-            help="Print stats of the lexer",
-        )
-        argparser.add_argument(
-            "--dump-tree",
-            action="store_true",
-            help="Print the complete parse tree of the parser",
-        )
-        argparser.add_argument(
-            "--dump-ast",
-            action="store_true",
-            help="Print the generated AST (Abstract Syntax Tree)",
-        )
-        argparser.add_argument(
-            "--parse-stats",
-            action="store_true",
-            help="Print stats of the parser",
-        )
-        argparser.add_argument(
-            "--dump-cf",
-            action="store_true",
-            help="Print the generated constant-folded AST",
-        )
-        argparser.add_argument(
-            "--dump-ir",
-            action="store_true",
-            help="Print the generated IR (Intermediate Representation)",
-        )
-        argparser.add_argument(
-            "--dump-cg",
-            action="store_true",
-            help="Print the generated IR (Intermediate Representation)",
-        )
-        argparser.add_argument(
-            "--dump-cmds",
-            action="store_true",
-            help="Print the generated datapack",
-        )
-        
+        for spec in ARG_SPECS:
+            if spec["condition"](modname):
+                args_list = spec.get("args")
+                kwargs = {k: v for k, v in spec.items() if k not in ("dest", "args", "condition")}
+                if args_list is None:
+                    argparser.add_argument(spec["dest"], **kwargs)
+                else:
+                    argparser.add_argument(*args_list, **kwargs)
+
         args = argparser.parse_args()
+
+        for spec in ARG_SPECS:
+            if spec["condition"](modname):
+                setattr(self, spec["dest"], getattr(args, spec["dest"]))
 
         filename: str | None = args.filename
         namespace: str | None = args.namespace
-        description: str | None = args.description
+        lineno_digits: int | None = args.lineno_digits
 
-        self.output: str = args.output
-        self.fixed_precision: int = args.fixed_precision
-
-        self.skip_comments: bool = args.skip_comments
-        self.tabsize: bool = args.tabsize
-        self.dump_tokens: bool = args.dump_tokens
-        self.lex_stats: bool = args.lex_stats
-        self.dump_ast: bool = args.dump_ast
-        self.dump_tree: bool = args.dump_tree
-        self.parse_stats: bool = args.parse_stats
-        self.dump_cf: bool = args.dump_cf
-        self.dump_ir: bool = args.dump_ir
-        self.dump_cg: bool = args.dump_cg
-        self.dump_cmds: bool = args.dump_cmds
-
-        stages = [
-            (['dump_tokens', 'lex_stats'], self.lexer_cli, []),
-            (['dump_ast', 'dump_tree', 'parse_stats'], self.parser_cli, ['vcs.lexer']),
-            (['dump_cf'], self.constfold_cli, ['vcs.lexer', 'vcs.parser']),
-            (['dump_ir', 'dump_cg'], self.irgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic']),
-            (['dump_cmds'], self.cmdgen_cli, ['vcs.lexer', 'vcs.parser', 'vcs.semantic', 'vcs.irgen']),
-        ]
-
-        funcs = []
-        for flags, func, invalid_modules in stages:
-            if any(getattr(self, flag) for flag in flags):
-                if modname in invalid_modules:
-                    flags_str = ','.join(f'--{flag}' for flag in flags if getattr(self, flag))
-                    utils.print_error(f"{flags_str} cannot be used in {modname!r}")
-                    exit(1)
-                funcs.append(func)
-
-        func: Callable[[str, str], None] | None = {
-            "vcs.lexer": self.lexer_cli,
-            "vcs.parser": self.parser_cli,
-            "vcs.constfold": self.constfold_cli,
-            "vcs.semantic": self.semantic_cli,
-            "vcs.irgen": self.irgen_cli,
-            "vcs.cmdgen": self.cmdgen_cli,
-            "vcs.cli": self.main_cli,
-        }.get(modname)
-
+        func: Callable[[str, str], None] | None = getattr(self, modname.removeprefix("vcs.") + "_cli")
         if func is None:
             raise RuntimeError(f"Unknown module: {modname!r}")
-
-        if func not in funcs:
-            funcs.append(func)
-        
-        def cli(filename: str, source: str):
-            for func in funcs:
-                func(filename, source)
 
         if filename is None:
             self.namespace = namespace or "repl"
@@ -225,7 +217,7 @@ class CommandLineInterface:
                 f"{modname} REPL (Read-Eval-Print Loop) module, type Ctrl+C to exit the program",
                 utils.AnsiCode.MAGENTA, bold=True
             )
-            REPL(cli).cmdloop(intro)
+            REPL(func).cmdloop(intro)
             exit(0)
 
         path = Path(filename)
@@ -233,24 +225,51 @@ class CommandLineInterface:
             utils.print_error(f"Source file {filename!r} does not exist")
             exit(1)
 
-        self.filename: str = filename
-        self.namespace: str = namespace or path.stem
-        self.description: str = description or self.namespace
+        self.filename = filename
+        self.namespace = namespace or path.stem
+
+        if modname == "vcs.cli":
+            self.description = self.description or self.namespace
 
         with open(path, encoding="utf8") as f:
             source = f.read()
-        
-        cli(filename, source)
 
-    def build_pipeline(self, filename: str, source: str):
+        self.lineno_digits = lineno_digits or len(str(source.count("\n") + 1))
+
+        func(filename, source)
+
+    # Implemented __getattr__ just to make the type checker happy
+    def __getattr__(self, name: str) -> Any:
+        value = self.__dict__.get(name, ...)
+        if value is ...:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        return value
+
+    def build_pipeline(self, filename: str, source: str, name: str) -> Any:
         self.errors = err.ErrorCollector()
-        lexer = lex.Lexer(source, filename, self.errors, self.tabsize)
-        parser = psr.Parser(lexer, self.errors, self.skip_comments, self.dump_tree)
-        constfolder = cf.ConstantFolder(parser)
+        lexer = lex.Lexer(source, filename, self.errors, self.skip_comments, self.tabsize, self.dump_tokens)
+        if name == "lexer":
+            return lexer
+
+        parser = psr.Parser(lexer, self.errors, self.dump_tree, self.dump_ast, self.parse_stats)
+        if name == "parser":
+            return parser
+        
+        constfolder = cf.ConstantFolder(parser, self.dump_cf)
+        if name == "constfold":
+            return constfolder
+
         typechecker = sem.SemanticAnalyzer(constfolder, self.errors)
-        irgen = irg.IRGenerator(self.namespace, typechecker)
-        cmdgen = cgn.CommandGenerator(irgen, self.fixed_precision)
-        return (lexer, parser, constfolder, typechecker, irgen, cmdgen)
+        if name == "semantic":
+            return typechecker
+
+        irgen = irg.IRGenerator(self.namespace, typechecker, self.lineno_digits, self.dump_ir, self.dump_cg)
+        if name == "irgen":
+            return irgen
+
+        cmdgen = cgn.CommandGenerator(irgen, self.fixed_precision, self.dump_cmds)
+        if name == "cmdgen":
+            return cmdgen
 
     def print_errors_if_any(self):
         if not self.errors.ok():
@@ -259,86 +278,37 @@ class CommandLineInterface:
                 utils.print_compiler_error(issue)
 
     def lexer_cli(self, filename: str, source: str):
-        t0 = time.time()
-        lexer, *_ = self.build_pipeline(filename, source)
-        tokens = list(lexer)
-        t1 = time.time()
-
-        if self.dump_tokens:
-            for token in tokens:
-                utils.print_info(str(token))
-            utils.print_info("")
-
-        if self.lex_stats:
-            dt = t1 - t0
-            nlines = tokens[-1].end_lineno
-            line_psec = f"; {nlines / dt:.0f} lines/sec"
-            utils.print_info(
-                f"Lexer Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Tokens: {len(tokens)}\n"
-            )
-
+        lexer = self.build_pipeline(filename, source, "lexer")
+        list(lexer)
         self.print_errors_if_any()
 
     def parser_cli(self, filename: str, source: str):
-        t0 = time.time()
-        _, parser, *_ = self.build_pipeline(filename, source)
-        tree = parser.parse()
-        t1 = time.time()
-
-        if self.dump_ast:
-            utils.print_info(str(tree) + "\n")
-        
-        if self.parse_stats:
-            dt = t1 - t0
-            nlines = parser.diagnose().end_lineno
-            line_psec = f", {nlines / dt:.0f} lines/sec"
-            utils.print_info(
-                f"Parser Duration: {dt:.3f} sec ({nlines} lines{line_psec if dt else ''}); Cache size: {len(parser._cache)}\n"
-            )
-        
+        parser = self.build_pipeline(filename, source, "parser")
+        parser.parse()
         self.print_errors_if_any()
 
     def constfold_cli(self, filename: str, source: str):
-        self.dump_tree = False
-        _, _, constfolder, *_ = self.build_pipeline(filename, source)
-        folded = constfolder.fold()
-        if self.dump_cf:
-            utils.print_info(str(folded) + "\n")
+        constfolder = self.build_pipeline(filename, source, "constfold")
+        constfolder.fold()
         self.print_errors_if_any()
 
     def semantic_cli(self, filename: str, source: str):
-        self.dump_tree = False
-        _, _, _, typechecker, *_ = self.build_pipeline(filename, source)
+        typechecker = self.build_pipeline(filename, source, "semantic")
         typechecker.analyze()
         self.print_errors_if_any()
     
     def irgen_cli(self, filename: str, source: str):
-        self.dump_tree = False
-        _, _, _, _, irgen, *_ = self.build_pipeline(filename, source)
-        mod = irgen.generate()
-        if mod is not None and (self.dump_ir or self.dump_cg):
-            if self.dump_ir:
-                utils.print_info(str(mod) + "\n")
-                
-            if self.dump_cg:
-                call_graph = mod.build_call_graph()
-                for src, dsts in call_graph.func_calls.items():
-                    utils.print_info(f"{src.name} -> {', '.join(dst.name for dst in dsts)}")
-                utils.print_info("")
-
+        irgen= self.build_pipeline(filename, source, "irgen")
+        irgen.generate()
         self.print_errors_if_any()
     
     def cmdgen_cli(self, filename: str, source: str):
-        self.dump_tree = False
-        _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
-        datapack = cmdgen.generate()
-        if datapack is not None and self.dump_cmds:
-            utils.print_info(str(datapack) + "\n")
+        cmdgen = self.build_pipeline(filename, source, "cmdgen")
+        cmdgen.generate()
         self.print_errors_if_any()
     
     def main_cli(self, filename: str, source: str):
-        self.dump_tree = False
-        _, _, _, _, _, cmdgen, *_ = self.build_pipeline(filename, source)
+        cmdgen = self.build_pipeline(filename, source, "cmdgen")
         datapack = cmdgen.generate()
         if datapack is not None:
             datapack.write_zip(self.output, self.description)

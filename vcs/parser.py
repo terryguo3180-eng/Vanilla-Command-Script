@@ -2,6 +2,8 @@
 # To regenerate this, `cd` to the top directory of this project and run:
 # `$python -m vcs.pegen vcs/vcs.gram -o vcs/parser.py`
 
+import time
+
 from functools import wraps
 from typing import Any, Callable, ClassVar, cast
 
@@ -35,7 +37,7 @@ def logger[F: Callable[..., Any], P: Parser](method: F) -> F:
 
     @wraps(method)
     def logger_wrapper(self: P, *args: object) -> Any:
-        if not self.verbose:
+        if not self.dump_tree:
             return method(self, *args)
 
         level = self._level
@@ -72,7 +74,7 @@ def memoize[F: Callable[..., Any], P: Parser](method: F) -> F:
         key = (mark, method_name, args)
 
         # fast path
-        if not self.verbose:
+        if not self.dump_tree:
             try:
                 tree, endmark = cache[key]
                 self._reset(endmark)
@@ -94,7 +96,7 @@ def memoize[F: Callable[..., Any], P: Parser](method: F) -> F:
         # slow path
         level = self._level
 
-        if self.verbose:
+        if self.dump_tree:
             fill = _get_indent(level)
             args_repr = ",".join(repr(arg) for arg in args)
             peek_repr = repr(self._showpeek())
@@ -109,7 +111,7 @@ def memoize[F: Callable[..., Any], P: Parser](method: F) -> F:
         endmark = self._mark()
         cache[key] = (tree, endmark)
 
-        if self.verbose:
+        if self.dump_tree:
             tree_repr = repr(tree)[:80]
             utils.print_info(f"{fill}... {method_name}({args_repr}) -> {tree_repr}")  # type: ignore
 
@@ -133,7 +135,7 @@ def memoize_left_rec[P: Parser, T](
         key = (mark, method_name, ())
 
         # fast path
-        if not self.verbose:
+        if not self.dump_tree:
             try:
                 tree, endmark = cache[key]
                 if tree is not None:
@@ -161,9 +163,9 @@ def memoize_left_rec[P: Parser, T](
         # (http://web.cs.ucla.edu/~todd/research/pub.php?id=pepm08)
 
         level = self._level
-        fill = _get_indent(level) if self.verbose else ""
+        fill = _get_indent(level) if self.dump_tree else ""
 
-        if self.verbose:
+        if self.dump_tree:
             peek_repr = repr(self._showpeek())
             utils.print_info(f"{fill}{method_name} ... (looking at {peek_repr})")
             utils.print_info(f"{fill}Recursive {method_name} at {mark} depth 0")
@@ -186,20 +188,20 @@ def memoize_left_rec[P: Parser, T](
                 endmark = self._mark()
                 depth += 1
 
-                if self.verbose:
+                if self.dump_tree:
                     result_repr = repr(result)[:80] if result else "None"
                     utils.print_info(
                         f"{fill}Recursive {method_name} at {mark} depth {depth}: {result_repr} to {endmark}"
                     )
 
                 if not result:
-                    if self.verbose:
+                    if self.dump_tree:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
                         utils.print_info(f"{fill}Fail with {last_repr} to {lastmark}")
                     break
 
                 if endmark <= lastmark:
-                    if self.verbose:
+                    if self.dump_tree:
                         last_repr = repr(lastresult)[:80] if lastresult else "None"
                         utils.print_info(f"{fill}Bailing with {last_repr} to {lastmark}")
                     break
@@ -212,7 +214,7 @@ def memoize_left_rec[P: Parser, T](
         self._reset(lastmark)
         tree = lastresult
 
-        if self.verbose:
+        if self.dump_tree:
             tree_repr = repr(tree)[:80] if tree else "None"
             utils.print_info(f"{fill}{method_name}() -> {tree_repr} [cached]")
 
@@ -302,15 +304,25 @@ class Parser:
     KEYWORDS: ClassVar[tuple[str, ...]]
     SOFT_KEYWORDS: ClassVar[tuple[str, ...]]
 
-    def __init__(self, lexer: lex.Lexer, errors: err.ErrorCollector, skip_comments=False, verbose=False):
+    def __init__(
+        self,
+        lexer: lex.Lexer,
+        errors: err.ErrorCollector,
+        dump_tree=False,
+        dump_ast=False,
+        parse_stats=False,
+    ):
         tokenstream = TokenStream(lexer)
         self._tokenstream = tokenstream
 
         self.filename = tokenstream.filename
         self.diagnose = tokenstream.diagnose
         self.errors = errors
-        self.skip_comments = skip_comments
-        self.verbose = verbose
+
+        # Debug flags
+        self.dump_tree = dump_tree
+        self.dump_ast = dump_ast
+        self.parse_stats = parse_stats
 
         self._mark = tokenstream.mark
         self._reset = tokenstream.reset
@@ -335,15 +347,11 @@ class Parser:
     @memoize
     def _accept(self, token_type: lex.TokenType | str) -> lex.TokenInfo | None:
         # Accept a token of the given type or value; returns the lex.TokenInfo or None
-        while True:
-            mark = self._mark()
-            try:
-                tok = self._getnext()
-            except StopIteration:
-                return None
-
-            if not (self.skip_comments and tok.type == lex.TokenType.COMMENT):
-                break
+        mark = self._mark()
+        try:
+            tok = self._getnext()
+        except StopIteration:
+            return None
             
         if tok.type == token_type:
             if token_type == lex.TokenType.NAME and tok.value in self.KEYWORDS:
@@ -418,7 +426,28 @@ class Parser:
         return self.get_error_info_on(self._peek())
     
     def parse(self):
-        return self._start() or [ast.Module(body=[]), self.report(err.ParseError(self.get_error_info_on(self.diagnose())))][0]
+        t0 = time.time()
+        tree = self._start() or [ast.Module(body=[]), self.report(err.ParseError(self.get_error_info_on(self.diagnose())))][0]  # type: ignore
+        t1 = time.time()
+
+        if self.dump_ast:
+            utils.print_info(utils.dump_astnode(tree))
+        
+        if self.parse_stats:
+            dt = t1 - t0
+            tokenstream = self._tokenstream
+            nlines = tokenstream._lexer.linecount
+
+            info1 = f"Total time: {dt:.3f} sec; {nlines} lines"
+            if dt:
+                info1 += f"; {nlines / dt:.0f} lines/sec"
+            
+            utils.print_info(info1)
+            utils.print_info("Caches sizes:")
+            utils.print_info(f"  token array : {len(tokenstream._tokens):10}")
+            utils.print_info(f"        cache : {len(self._cache):10}")
+        
+        return tree
 
     @memoize
     def _start(self) -> ast . Module | None:
@@ -1937,6 +1966,7 @@ class Parser:
 
     KEYWORDS = ('Bool', 'Fixed', 'Float', 'Int', 'and', 'break', 'continue', 'else', 'false', 'for', 'if', 'not', 'or', 'pass', 'return', 'tell', 'true', 'while')
     SOFT_KEYWORDS = ()
+
 
 
 if __name__ == "__main__":
